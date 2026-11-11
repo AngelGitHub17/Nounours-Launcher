@@ -33,6 +33,7 @@
           <span>⌕</span>
           <input id="search" type="search" placeholder="Rechercher…" autocomplete="off">
         </div>
+        <button class="btn primary hidden" id="updateAll"></button>
         <button class="iconbtn" id="refresh" title="Actualiser (F5)">⟳</button>
       </header>
       <section id="content" class="content"></section>
@@ -54,6 +55,12 @@
             <button data-v="beta">Bêta</button>
           </div>
           <p class="hint">Le canal bêta reçoit les nouveautés en avant-première (et parfois quelques bugs).</p>
+        </div>
+        <div class="field">
+          <label>Mes applis</label>
+          <label class="check"><input type="checkbox" id="autoApps"> Mettre à jour automatiquement les applis installées</label>
+          <p class="hint">Uniquement celles qui s'installent sans fenêtre (portables, AppImage, installeurs silencieux). Les autres affichent « Mettre à jour ».</p>
+          <p class="hint">Dossier des applis portables : <span id="appsDir" class="mono">—</span></p>
         </div>
         <div class="field">
           <label>Mise à jour du launcher</label>

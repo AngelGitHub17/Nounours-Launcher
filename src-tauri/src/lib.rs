@@ -2,6 +2,8 @@
 //! L'interface (HTML/JS) fait presque tout ; ici on branche les plugins
 //! et on expose quelques informations sur la machine.
 
+mod apps;
+
 #[cfg(desktop)]
 use tauri::Manager;
 
@@ -44,7 +46,15 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![platform_key])
+        .manage(apps::AppsState::default())
+        .invoke_handler(tauri::generate_handler![
+            platform_key,
+            apps::installed_apps,
+            apps::apps_folder,
+            apps::install_app,
+            apps::launch_app,
+            apps::remove_app,
+        ])
         .run(tauri::generate_context!())
         .expect("erreur au démarrage de NounoursLauncher");
 }

@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS nl_assets (
   sha256       CHAR(64) NULL,
   signature    TEXT NULL,                             -- signature minisign (updater Tauri) ou autre
   install_args VARCHAR(255) NULL,                     -- ex. /S pour un installeur NSIS silencieux
+  launch_path  VARCHAR(500) NULL,                     -- exécutable à lancer après installation (%LOCALAPPDATA%\..., ou chemin relatif dans un zip)
   PRIMARY KEY (id),
   UNIQUE KEY uq_nl_assets (release_id, platform, kind),
   CONSTRAINT fk_nl_assets_release FOREIGN KEY (release_id) REFERENCES nl_releases(id) ON DELETE CASCADE

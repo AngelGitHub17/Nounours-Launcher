@@ -4,7 +4,7 @@ Le launcher de tout l'écosystème NounoursCorp. Il se construit tout seul à pa
 
 Développé avec **Tauri 2** : une interface en HTML, CSS et JavaScript (dossier `src/`) et un petit cœur en Rust (dossier `src-tauri/`). Un seul code sert pour Windows, macOS et Linux, puis plus tard pour Android et iOS.
 
-## Ce que fait la version 0.1
+## Ce que fait le launcher
 
 - **Catalogue**
   - les projets sont rangés par type (Sites, Applications, Plugins…) ;
@@ -19,7 +19,32 @@ Développé avec **Tauri 2** : une interface en HTML, CSS et JavaScript (dossier
 - **Mise à jour automatique du launcher** : vérification au démarrage puis toutes les 6 heures, avec un bandeau « Installer et redémarrer ». On choisit le canal stable ou bêta dans les Réglages.
 - **Une seule instance** : relancer le launcher remet simplement la fenêtre au premier plan.
 
-L'installation et la mise à jour des applications *à l'intérieur* du launcher arrivent à l'étape 3.
+- **Installer, lancer et mettre à jour tes applis**
+  - le bouton change selon l'état : *Installer* → *Lancer* → *Mettre à jour* ;
+  - chaque téléchargement est vérifié (SHA-256) avant l'installation, avec une barre de progression ;
+  - la vue « Mes applis » liste ce qui est installé, et le bouton *Tout mettre à jour* fait tout d'un coup ;
+  - une version marquée « obligatoire » est installée avant le lancement ;
+  - les applis portables, les AppImage et les installeurs silencieux se mettent à jour tout seuls (réglable).
+
+## Ajouter une appli au launcher
+
+Dans le panel (`nounourscorp.fr/launcher/admin/`) :
+1. Crée le projet, ou ouvre-le s'il existe déjà.
+2. Ajoute une version.
+3. Ajoute un fichier par plateforme. Tes publications GitHub peuvent aussi le faire automatiquement.
+
+| Type de fichier | Ce que fait le launcher | « À lancer » |
+|---|---|---|
+| `installer` (.exe NSIS / Inno) | lance l'installeur avec les *arguments* (ex. `/S` pour une installation silencieuse) ; si l'installeur demande les droits admin, la fenêtre de Windows s'affiche | chemin de l'exe installé, ex. `%LOCALAPPDATA%\Programs\NounoursCineManager\NounoursCineManager.exe` |
+| `msi` | `msiexec /i … /passive` | idem |
+| `zip` / `portable` | extrait l'archive dans le dossier du launcher et remplace l'ancienne version | chemin **dans le zip**, ex. `NounoursCineManager.exe` (si tu le laisses vide, le launcher cherche tout seul) |
+| `appimage` | copie le fichier et le rend exécutable | — |
+| `dmg` | copie le `.app` dans `~/Applications` | — |
+| `deb`, `rpm`, `jar`… | ouvre le fichier avec le programme du système | facultatif |
+
+Il suffit de renseigner les *arguments* et le chemin *à lancer* une seule fois : les versions suivantes, même publiées par GitHub, les reprennent automatiquement.
+
+**Pour tes applis WPF**, le plus simple est un **zip portable** : un `dotnet publish` en self-contained, puis un zip du dossier. Les mises à jour sont alors silencieuses et automatiques.
 
 ## Installer l'environnement (Windows)
 

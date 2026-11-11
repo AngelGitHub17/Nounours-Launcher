@@ -33,7 +33,19 @@ const state = {
   error: null,
   appVersion: '0.0.0',
   update: null,
+  installed: {},          // applis installées par le launcher (registre local)
+  progress: {},           // installations en cours : slug → { phase, done, total }
+  autoApps: LS.get('nl.autoApps', true),
 };
+
+// Types de fichiers préférés pour installer, par système
+const PREFERRED_KINDS = {
+  windows: ['installer', 'msi', 'portable', 'zip'],
+  darwin: ['dmg', 'zip', 'portable'],
+  linux: ['appimage', 'zip', 'portable', 'deb', 'rpm'],
+};
+// Installables sans intervention (mise à jour automatique possible)
+const SILENT_KINDS = ['zip', 'portable', 'appimage'];
 
 // ---------- Outils natifs (avec repli navigateur pour `npm run dev`) ----------
 
@@ -47,12 +59,27 @@ async function openExternal(url) {
   }
 }
 
+let invoke = async () => { throw new Error("Disponible uniquement dans l'application"); };
+
 async function initNative() {
   if (!isTauri) return;
-  const { invoke } = await import('@tauri-apps/api/core');
+  ({ invoke } = await import('@tauri-apps/api/core'));
   const { getVersion } = await import('@tauri-apps/api/app');
+  const { listen } = await import('@tauri-apps/api/event');
   state.platform = await invoke('platform_key');
   state.appVersion = await getVersion();
+  await loadInstalled();
+  await listen('nl-progress', ev => {
+    const p = ev.payload;
+    if (p.phase === 'done' || p.phase === 'error') delete state.progress[p.slug];
+    else state.progress[p.slug] = p;
+    paintProgress(p.slug);
+  });
+}
+
+async function loadInstalled() {
+  if (!isTauri) return;
+  try { state.installed = await invoke('installed_apps'); } catch (e) { console.warn(e); }
 }
 
 function toast(msg, kind = '') {
@@ -93,7 +120,8 @@ function visibleProjects() {
   const q = state.query.trim().toLowerCase();
   return state.projects.filter(p => {
     if (state.view === 'fav' && !state.favs.has(p.slug)) return false;
-    if (state.view !== 'all' && state.view !== 'fav' && p.type !== state.view) return false;
+    if (state.view === 'mine' && !state.installed[p.slug]) return false;
+    if (!['all', 'fav', 'mine'].includes(state.view) && p.type !== state.view) return false;
     if (!q) return true;
     return [p.name, p.short_desc, p.slug, ...(p.tags || [])].join(' ').toLowerCase().includes(q);
   });
@@ -112,10 +140,11 @@ function renderNav() {
   const items = [
     ['all', '🏠', 'Tous les projets', state.projects.length],
     ['fav', '★', 'Favoris', state.projects.filter(p => state.favs.has(p.slug)).length],
+    ...(isTauri ? [['mine', '📦', 'Mes applis', state.projects.filter(p => state.installed[p.slug]).length, pendingUpdates().length]] : []),
     ...Object.entries(TYPES).filter(([t]) => counts[t]).map(([t, v]) => [t, v.icon, v.label, counts[t]]),
   ];
-  $('#nav').innerHTML = items.map(([v, ic, label, n]) =>
-    `<button class="navbtn ${state.view === v ? 'on' : ''}" data-view="${v}"><span class="ic">${ic}</span>${esc(label)}<span class="count">${n}</span></button>`
+  $('#nav').innerHTML = items.map(([v, ic, label, n, upd]) =>
+    `<button class="navbtn ${state.view === v ? 'on' : ''}" data-view="${v}"><span class="ic">${ic}</span>${esc(label)}${upd ? `<span class="count upd" title="Mises à jour">${upd}↑</span>` : `<span class="count">${n}</span>`}</button>`
   ).join('');
 }
 
@@ -138,7 +167,10 @@ function renderNet() {
 
 function renderHeader() {
   const v = state.view;
-  $('#title').textContent = v === 'all' ? 'Tous les projets' : v === 'fav' ? 'Favoris' : TYPES[v]?.label ?? 'Projets';
+  $('#title').textContent = v === 'all' ? 'Tous les projets' : v === 'fav' ? 'Favoris' : v === 'mine' ? 'Mes applis' : TYPES[v]?.label ?? 'Projets';
+  const n2 = pendingUpdates().length;
+  $('#updateAll').classList.toggle('hidden', !n2);
+  $('#updateAll').textContent = `Tout mettre à jour (${n2})`;
   const n = visibleProjects().length;
   $('#subtitle').textContent = state.loading ? 'Chargement du catalogue…' : `${n} projet${n > 1 ? 's' : ''} · ${PLATFORM_NAMES[state.platform] || state.platform}`;
 }
@@ -150,12 +182,124 @@ function iconHtml(p, cls = 'pic') {
     : `<div class="${cls}" style="${style}"><span>${esc(p.name.charAt(0))}</span></div>`;
 }
 
+function cmpVer(a, b) {
+  const [ca, pa] = String(a).replace(/^v/, '').split('-', 2);
+  const [cb, pb] = String(b).replace(/^v/, '').split('-', 2);
+  const x = ca.split('.').map(Number), y = cb.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
+  if (!pa && !pb) return 0;
+  if (!pa) return 1;
+  if (!pb) return -1;
+  return pa.localeCompare(pb, 'en', { numeric: true });
+}
+
+/** Meilleur fichier à installer sur ce système */
+function bestAsset(p) {
+  const rel = p.latest?.[state.platform];
+  if (!rel?.assets?.length) return null;
+  const order = PREFERRED_KINDS[state.platform.split('-')[0]] || [];
+  const assets = rel.assets.filter(a => a.kind !== 'updater');
+  assets.sort((a, b) => (order.indexOf(a.kind) + 1 || 99) - (order.indexOf(b.kind) + 1 || 99));
+  return assets[0] ? { rel, asset: assets[0] } : null;
+}
+
+/** Applis installées qui ont une version plus récente dans le catalogue */
+function pendingUpdates() {
+  return state.projects.filter(p => {
+    const inst = state.installed[p.slug], b = bestAsset(p);
+    return inst && b && cmpVer(b.rel.version, inst.version) > 0;
+  });
+}
+
 /** Action principale d'un projet sur cette plateforme */
 function primaryAction(p) {
-  const rel = p.latest?.[state.platform];
-  if (rel && rel.assets?.length) return { kind: 'download', label: `Télécharger`, rel };
+  const b = bestAsset(p);
+  const inst = state.installed[p.slug];
+  if (state.progress[p.slug]) return { kind: 'busy', label: 'Installation…' };
+  if (b && isTauri) {
+    if (inst && cmpVer(b.rel.version, inst.version) > 0) return { kind: 'install', label: 'Mettre à jour', ...b };
+    if (inst && !inst.exists) return { kind: 'install', label: 'Réinstaller', ...b };
+    if (inst) return { kind: 'launch', label: 'Lancer' };
+    return { kind: 'install', label: 'Installer', ...b };
+  }
+  if (b) return { kind: 'download', label: 'Télécharger', ...b };
   if (p.website_url) return { kind: 'open', label: 'Ouvrir' };
   return { kind: 'details', label: 'Voir' };
+}
+
+function progressText(pr) {
+  if (!pr) return '';
+  if (pr.phase === 'download') return pr.total ? `Téléchargement ${Math.round(pr.done * 100 / pr.total)} %` : `Téléchargement ${fmtSize(pr.done)}`;
+  if (pr.phase === 'verify') return 'Vérification…';
+  return 'Installation…';
+}
+
+/** Met à jour la progression sans tout redessiner */
+function paintProgress(slug) {
+  const pr = state.progress[slug];
+  document.querySelectorAll(`[data-prog="${CSS.escape(slug)}"]`).forEach(el => {
+    el.classList.toggle('hidden', !pr);
+    const pct = pr?.phase === 'download' && pr.total ? (pr.done * 100 / pr.total) : pr ? 100 : 0;
+    el.querySelector('i').style.width = pct + '%';
+    el.classList.toggle('indet', !!pr && !(pr.phase === 'download' && pr.total));
+    const label = el.querySelector('span');
+    if (label) label.textContent = progressText(pr);
+  });
+  if (!pr) return;
+  document.querySelectorAll(`[data-act][data-slug="${CSS.escape(slug)}"]`).forEach(b => { b.disabled = true; b.textContent = 'Installation…'; });
+}
+
+async function installProject(p, { quiet = false } = {}) {
+  const b = bestAsset(p);
+  if (!b || state.progress[p.slug]) return false;
+  const { rel, asset } = b;
+  if (!asset.sha256 && !quiet && !confirm(`Le fichier de ${p.name} n'a pas d'empreinte de sécurité (SHA-256) : son intégrité ne pourra pas être vérifiée. Continuer ?`)) return false;
+  state.progress[p.slug] = { phase: 'download', done: 0, total: asset.size || 0 };
+  renderGrid(); paintProgress(p.slug);
+  const was = state.installed[p.slug];
+  try {
+    await invoke('install_app', { req: {
+      slug: p.slug, version: rel.version, url: asset.url, sha256: asset.sha256 || null,
+      kind: asset.kind, install_args: asset.install_args || null, launch_path: asset.launch_path || null,
+    } });
+    delete state.progress[p.slug];
+    await loadInstalled();
+    toast(was ? `${p.name} mis à jour en v${rel.version}` : `${p.name} est installé`);
+    return true;
+  } catch (e) {
+    delete state.progress[p.slug];
+    toast(`${p.name} : ${e}`, 'err');
+    return false;
+  } finally {
+    render();
+    if (!$('#detail').classList.contains('hidden') && $('#sheet').dataset.slug === p.slug) openDetail(p.slug, true);
+  }
+}
+
+async function launchProject(p) {
+  const b = bestAsset(p), inst = state.installed[p.slug];
+  if (b && inst && b.rel.mandatory && cmpVer(b.rel.version, inst.version) > 0) {
+    toast(`Mise à jour obligatoire de ${p.name}…`);
+    if (!(await installProject(p))) return;
+  }
+  try { await invoke('launch_app', { slug: p.slug }); toast(`${p.name} démarre…`); }
+  catch (e) { toast(String(e), 'err'); }
+}
+
+async function removeProject(p) {
+  const inst = state.installed[p.slug];
+  if (!inst) return;
+  const msg = inst.removable
+    ? `Désinstaller ${p.name} ? Ses fichiers seront supprimés.`
+    : `Retirer ${p.name} du launcher ? Il a été installé dans le système : pour le supprimer complètement, passe par les paramètres de ton ordinateur.`;
+  if (!confirm(msg)) return;
+  try { await invoke('remove_app', { slug: p.slug }); await loadInstalled(); toast(`${p.name} retiré`); render(); openDetail(p.slug, true); }
+  catch (e) { toast(String(e), 'err'); }
+}
+
+async function updateAll({ auto = false } = {}) {
+  const list = pendingUpdates().filter(p => !auto || SILENT_KINDS.includes(bestAsset(p).asset.kind) || bestAsset(p).asset.install_args);
+  for (const p of list) await installProject(p, { quiet: auto });
 }
 
 function statusBadge(p) {
@@ -182,9 +326,10 @@ function cardHtml(p) {
     <p>${esc(p.short_desc || '')}</p>
     <div class="card-foot">
       <span class="state">${statusBadge(p)}</span>
-      ${rel ? `<span class="ver">v${esc(rel.version)}</span>` : ''}
-      <button class="btn sm ${a.kind === 'details' ? 'ghost' : 'primary'}" data-act="${a.kind}" data-slug="${esc(p.slug)}">${a.label}</button>
+      ${state.installed[p.slug] ? `<span class="ver mine" title="Version installée">v${esc(state.installed[p.slug].version)}</span>` : rel ? `<span class="ver">v${esc(rel.version)}</span>` : ''}
+      <button class="btn sm ${a.kind === 'details' ? 'ghost' : a.kind === 'launch' ? 'go' : 'primary'}" data-act="${a.kind}" data-slug="${esc(p.slug)}" ${a.kind === 'busy' ? 'disabled' : ''}>${a.label}</button>
     </div>
+    <div class="prog ${state.progress[p.slug] ? '' : 'hidden'}" data-prog="${esc(p.slug)}"><span></span><div class="progress"><i></i></div></div>
   </article>`;
 }
 
@@ -199,6 +344,8 @@ function renderGrid() {
   let html = '';
   if (state.error && !state.projects.length) {
     html = `<div class="empty"><div class="big">📡</div><h2>Impossible de joindre le catalogue</h2><p>${esc(state.error)}</p><button class="btn primary" data-retry>Réessayer</button></div>`;
+  } else if (!list.length && state.view === 'mine' && !state.query) {
+    html = `<div class="empty"><div class="big">📦</div><h2>Aucune appli installée</h2><p>Installe une application depuis le catalogue : elle apparaîtra ici et se mettra à jour toute seule.</p></div>`;
   } else if (!list.length) {
     html = state.view === 'fav' && !state.query
       ? `<div class="empty"><div class="big">★</div><h2>Aucun favori</h2><p>Clique sur l'étoile d'un projet pour le retrouver ici.</p></div>`
@@ -215,6 +362,7 @@ function renderGrid() {
     html = `<div class="grid">${list.map(cardHtml).join('')}</div>`;
   }
   box.innerHTML = html;
+  Object.keys(state.progress).forEach(paintProgress);
 }
 
 // ---------- Fiche projet ----------
@@ -226,11 +374,15 @@ function fmtSize(n) {
   return `${n.toFixed(i ? 1 : 0)} ${u[i]}`;
 }
 
-async function openDetail(slug) {
+async function openDetail(slug, refresh = false) {
   const p = state.projects.find(x => x.slug === slug);
   if (!p) return;
   const rel = p.latest?.[state.platform];
-  const asset = rel?.assets?.[0];
+  const b = bestAsset(p);
+  const asset = b?.asset;
+  const inst = state.installed[p.slug];
+  const act = primaryAction(p);
+  const scroll = $('#sheet').scrollTop;
   const s = state.status[p.slug];
   const others = (p.platforms || []).filter(x => x !== state.platform && x !== 'web').map(x => PLATFORM_NAMES[x] || x);
 
@@ -253,10 +405,16 @@ async function openDetail(slug) {
       </div>
 
       <div class="actions">
-        ${p.website_url ? `<button class="btn primary" data-open="${esc(p.website_url)}">Ouvrir ${p.type === 'site' ? 'le site' : "l'appli web"} ↗</button>` : ''}
-        ${asset ? `<button class="btn ${p.website_url ? '' : 'primary'}" data-open="${esc(asset.url)}">Télécharger pour ${esc(PLATFORM_NAMES[state.platform] || state.platform)}${asset.size ? ` · ${fmtSize(asset.size)}` : ''}</button>` : ''}
+        ${act.kind === 'launch' ? `<button class="btn go" data-act="launch" data-slug="${esc(p.slug)}">▶ Lancer</button>` : ''}
+        ${act.kind === 'install' ? `<button class="btn primary" data-act="install" data-slug="${esc(p.slug)}">${esc(act.label)}${inst && act.label === 'Mettre à jour' ? ` · v${esc(inst.version)} → v${esc(b.rel.version)}` : asset?.size ? ` · ${fmtSize(asset.size)}` : ''}</button>` : ''}
+        ${act.kind === 'busy' ? `<button class="btn" disabled>Installation…</button>` : ''}
+        ${act.kind === 'download' ? `<button class="btn primary" data-open="${esc(asset.url)}">Télécharger pour ${esc(PLATFORM_NAMES[state.platform] || state.platform)}${asset.size ? ` · ${fmtSize(asset.size)}` : ''}</button>` : ''}
+        ${p.website_url ? `<button class="btn ${['launch', 'install', 'download', 'busy'].includes(act.kind) ? '' : 'primary'}" data-open="${esc(p.website_url)}">Ouvrir ${p.type === 'site' ? 'le site' : "l'appli web"} ↗</button>` : ''}
         ${p.repo_url ? `<button class="btn ghost" data-open="${esc(p.repo_url)}">Code source ↗</button>` : ''}
+        ${inst ? `<button class="btn ghost danger" data-remove="${esc(p.slug)}">${inst.removable ? 'Désinstaller' : 'Retirer du launcher'}</button>` : ''}
       </div>
+      <div class="prog wide ${state.progress[p.slug] ? '' : 'hidden'}" data-prog="${esc(p.slug)}"><span></span><div class="progress"><i></i></div></div>
+      ${inst ? `<p class="hint">Installé : v${esc(inst.version)}${inst.exists ? '' : ' — <b>programme introuvable</b>, réinstalle-le'}${b?.rel.mandatory && cmpVer(b.rel.version, inst.version) > 0 ? ' · <b>mise à jour obligatoire</b>' : ''}</p>` : ''}
       ${!asset && others.length ? `<p class="hint">Disponible aussi sur : ${esc(others.join(', '))}</p>` : ''}
 
       ${s ? `<div class="statusbox ${s.up ? 'ok' : 'bad'}">
@@ -269,7 +427,9 @@ async function openDetail(slug) {
 
       <div id="releases"></div>
     </div>`;
-  showOverlay('#detail');
+  $('#sheet').dataset.slug = p.slug;
+  if (refresh) $('#sheet').scrollTop = scroll; else showOverlay('#detail');
+  paintProgress(p.slug);
 
   // Historique des versions (chargé à part)
   if (!(p.platforms || []).some(x => x !== 'web')) return;
@@ -353,6 +513,8 @@ function renderSettings() {
   document.querySelectorAll('#channelSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === state.channel));
   $('#versionInfo').textContent = `Version installée : ${state.appVersion} · ${PLATFORM_NAMES[state.platform] || state.platform}`;
   $('#apiUrl').value = apiUrl();
+  $('#autoApps').checked = state.autoApps;
+  if (isTauri) invoke('apps_folder').then(d => { $('#appsDir').textContent = d; }).catch(() => {});
 }
 
 // ---------- Événements ----------
@@ -376,12 +538,18 @@ document.addEventListener('click', async e => {
   if (act) {
     e.stopPropagation();
     const p = state.projects.find(x => x.slug === act.dataset.slug);
-    const a = p && primaryAction(p);
-    if (a?.kind === 'open') openExternal(p.website_url);
-    else if (a?.kind === 'download') openExternal(a.rel.assets[0].url);
-    else if (p) openDetail(p.slug);
+    const kind = act.dataset.act;
+    if (!p || kind === 'busy') return;
+    if (kind === 'install') installProject(p);
+    else if (kind === 'launch') launchProject(p);
+    else if (kind === 'open') openExternal(p.website_url);
+    else if (kind === 'download') openExternal(bestAsset(p).asset.url);
+    else openDetail(p.slug);
     return;
   }
+
+  const rm = t.closest('[data-remove]');
+  if (rm) { const p = state.projects.find(x => x.slug === rm.dataset.remove); if (p) removeProject(p); return; }
 
   const open = t.closest('[data-open]');
   if (open) { openExternal(open.dataset.open); return; }
@@ -396,6 +564,7 @@ document.addEventListener('click', async e => {
   if (card) { openDetail(card.dataset.slug); return; }
 
   if (t.id === 'doUpdate') { installUpdate(); return; }
+  if (t.id === 'updateAll') { updateAll(); return; }
   if (t.id === 'laterUpdate') { $('#updateBar').classList.add('hidden'); return; }
 });
 
@@ -426,6 +595,7 @@ $('#saveApi').addEventListener('click', () => {
   LS.set('nl.api', v); clearCache(); refreshCatalog(); refreshStatus(); toast('Adresse enregistrée');
 });
 $('#resetApi').addEventListener('click', () => { LS.set('nl.api', DEFAULT_API); renderSettings(); clearCache(); refreshCatalog(); refreshStatus(); });
+$('#autoApps').addEventListener('change', e => { state.autoApps = e.target.checked; LS.set('nl.autoApps', state.autoApps); });
 $('#clearCache').addEventListener('click', () => { clearCache(); refreshCatalog(); toast('Cache vidé'); });
 
 // Icône introuvable → on garde l'initiale (pas de gestionnaire inline à cause de la CSP)
@@ -441,8 +611,9 @@ document.addEventListener('contextmenu', e => { if (!e.target.closest('input, te
   render();
   await refreshCatalog();
   refreshStatus();
-  setInterval(() => refreshCatalog({ silent: true }), 5 * 60 * 1000);
+  setInterval(async () => { await refreshCatalog({ silent: true }); if (state.autoApps) updateAll({ auto: true }); }, 5 * 60 * 1000);
   setInterval(refreshStatus, 60 * 1000);
   setTimeout(() => checkUpdate(false), 4000);
+  if (state.autoApps) setTimeout(() => updateAll({ auto: true }), 8000);
   setInterval(() => checkUpdate(false), 6 * 60 * 60 * 1000);
 })();

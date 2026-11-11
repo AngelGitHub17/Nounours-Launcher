@@ -227,8 +227,10 @@ function nl_setting_set(string $key, ?string $value): void
 
 function nl_ensure_schema(): void
 {
-    $flag = dirname(__DIR__) . '/cache/.schema_v1';
-    if (is_file($flag)) { return; }
+    $dir = dirname(__DIR__) . '/cache';
+    if (is_file("$dir/.schema_v2")) { return; }
+    $flag = "$dir/.schema_v1";
+    if (is_file($flag)) { nl_migrate_v2(); return; }
     $db = nl_db();
     $sql = (string)file_get_contents(dirname(__DIR__) . '/schema.sql');
     $sql = preg_replace('/^\s*--.*$/m', '', $sql) ?? '';
@@ -239,6 +241,19 @@ function nl_ensure_schema(): void
     nl_seed($db);
     if (!is_dir(dirname($flag))) { @mkdir(dirname($flag), 0755, true); }
     @file_put_contents($flag, gmdate('c'));
+    nl_migrate_v2();
+}
+
+/** v2 : chemin de lancement des applis installées par le launcher */
+function nl_migrate_v2(): void
+{
+    $db = nl_db();
+    $st = $db->query("SELECT COUNT(*) FROM information_schema.COLUMNS
+                      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'nl_assets' AND COLUMN_NAME = 'launch_path'");
+    if ((int)$st->fetchColumn() === 0) {
+        $db->exec('ALTER TABLE nl_assets ADD COLUMN launch_path VARCHAR(500) NULL AFTER install_args');
+    }
+    @file_put_contents(dirname(__DIR__) . '/cache/.schema_v2', gmdate('c'));
 }
 
 function nl_cors(bool $adminRoute): void

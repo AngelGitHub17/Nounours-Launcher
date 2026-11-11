@@ -18,11 +18,21 @@ tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Installation des applis du catalogue
+reqwest = { version = "0.13", features = ["stream"] }
+futures-util = "0.3"
+sha2 = "0.10"
+hex = "0.4"
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # Mise à jour automatique et instance unique : ordinateur uniquement (pas Android / iOS)
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [profile.release]
 codegen-units = 1

@@ -102,9 +102,29 @@ function nl_load(int $level, ?string $slug = null, bool $includeUnpublished = fa
     }
     foreach ($projects as &$p) {
         usort($p['releases'], fn($a, $b) => nl_vcmp($b['version'], $a['version']));
+        nl_inherit_hints($p);
     }
     unset($p);
     return $projects;
+}
+
+/**
+ * Une nouvelle version publiée par la CI n'a ni arguments d'installation ni chemin de lancement :
+ * on reprend ceux de la version précédente pour la même plateforme et le même type de fichier.
+ */
+function nl_inherit_hints(array &$p): void
+{
+    $known = [];
+    for ($i = count($p['releases']) - 1; $i >= 0; $i--) { // de la plus ancienne à la plus récente
+        foreach ($p['releases'][$i]['assets'] as &$a) {
+            $k = $a['platform'] . '|' . $a['kind'];
+            foreach (['install_args', 'launch_path'] as $f) {
+                if (($a[$f] ?? null) === null || $a[$f] === '') { $a[$f] = $known[$k][$f] ?? null; }
+                else { $known[$k][$f] = $a[$f]; }
+            }
+        }
+        unset($a);
+    }
 }
 
 function nl_fmt_asset(array $a): array
@@ -117,6 +137,7 @@ function nl_fmt_asset(array $a): array
         'sha256'       => $a['sha256'],
         'signature'    => $a['signature'],
         'install_args' => $a['install_args'],
+        'launch_path'  => $a['launch_path'] ?? null,
     ];
 }
 

@@ -185,6 +185,7 @@ function nl_asset_data(array $in): array
         'sha256'       => $sha !== null ? strtolower($sha) : null,
         'signature'    => nl_str($in, 'signature', 4000),
         'install_args' => nl_str($in, 'install_args', 255),
+        'launch_path'  => nl_str($in, 'launch_path', 500),
     ];
 }
 

@@ -411,7 +411,7 @@ function renderReleases(p) {
         <button class="btn danger sm" data-act="del">Supprimer</button></div>
       ${r.notes ? `<div class="muted" style="white-space:pre-wrap;font-size:12.5px;margin-top:6px">${esc(r.notes)}</div>` : ''}
       <table class="assets"><thead><tr><th>Plateforme</th><th>Type</th><th>Fichier</th><th>Taille</th><th></th></tr></thead><tbody>
-      ${r.assets.map(a => `<tr><td>${esc(PLATFORMS[a.platform] || a.platform)}</td><td>${esc(a.kind)}${a.signature ? ' 🔏' : ''}</td>
+      ${r.assets.map(a => `<tr><td>${esc(PLATFORMS[a.platform] || a.platform)}</td><td>${esc(a.kind)}${a.signature ? ' 🔏' : ''}${a.launch_path ? ' ▶' : ''}</td>
         <td class="url"><a href="${esc(a.url)}" target="_blank" rel="noopener" style="color:var(--accent2)">${esc(a.url.split('/').pop() || a.url)}</a></td>
         <td>${fmtSize(a.size)}</td><td><button class="btn sm" data-del-asset="${a.id}">✕</button></td></tr>`).join('')
         || '<tr><td colspan="5" class="muted">Aucun fichier</td></tr>'}
@@ -424,6 +424,7 @@ function renderReleases(p) {
           <input name="size" type="number" placeholder="Taille (octets)">
           <input name="sha256" placeholder="SHA-256 (64 hex)" style="grid-column:span 2">
           <input name="install_args" placeholder="Arguments d'install (ex. /S)">
+          <input name="launch_path" placeholder="À lancer : %LOCALAPPDATA%\\Programs\\Appli\\Appli.exe  ·  ou  Appli.exe  (dans le zip)" class="full">
           <input name="signature" placeholder="Signature (updater Tauri)" style="grid-column:span 2">
           <div class="full"><button class="btn primary sm">Ajouter le fichier</button></div>
         </form></details>`;
