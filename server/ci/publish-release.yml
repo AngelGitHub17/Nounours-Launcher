@@ -1,0 +1,76 @@
+# Exemple de GitHub Action : publie automatiquement une version dans le catalogue
+# à chaque release GitHub. À copier dans .github/workflows/ de chaque projet.
+#
+# Secrets à créer dans le dépôt (Settings → Secrets and variables → Actions) :
+#   NL_CI_TOKEN  : le jeton CI affiché par install.php
+# Variables (onglet Variables) :
+#   NL_API_URL   : https://nounourscorp.fr/launcher/api.php
+#   NL_SLUG      : slug du projet dans le catalogue (ex. nounourscinemanager)
+#
+# Convention de nommage des fichiers attachés à la release → plateforme :
+#   *-win-x64*.exe / *.msi → windows-x86_64     *.apk → android
+#   *-mac-arm64*.dmg       → darwin-aarch64     *.AppImage → linux-x86_64
+#   *-mac-x64*.dmg         → darwin-x86_64      *.deb → linux-x86_64
+#   *.jar                  → server (plugin Minecraft)
+
+name: Publier dans NounoursLauncher
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Construire et envoyer le manifeste
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NL_CI_TOKEN: ${{ secrets.NL_CI_TOKEN }}
+          NL_API_URL: ${{ vars.NL_API_URL }}
+          NL_SLUG: ${{ vars.NL_SLUG }}
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          NOTES: ${{ github.event.release.body }}
+        run: |
+          set -euo pipefail
+          mkdir dl && cd dl
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY"
+
+          assets='[]'
+          add() { # add <plateforme> <type> <fichier> [signature]
+            local url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$3"
+            assets=$(jq -c --arg p "$1" --arg k "$2" --arg u "$url" \
+              --argjson s "$(stat -c%s "$3")" --arg h "$(sha256sum "$3" | cut -d' ' -f1)" --arg g "${4:-}" \
+              '. + [{platform:$p, kind:$k, url:$u, size:$s, sha256:$h} + (if $g != "" then {signature:$g} else {} end)]' <<< "$assets")
+          }
+          for f in *; do
+            sig=""; [ -f "$f.sig" ] && sig="$(cat "$f.sig")"
+            case "$f" in
+              *.sig) continue ;;
+              # Artefacts de mise à jour Tauri (launcher) : .app.tar.gz signé pour macOS
+              *aarch64*.app.tar.gz) add darwin-aarch64 updater "$f" "$sig"; continue ;;
+              *x64*.app.tar.gz|*x86_64*.app.tar.gz) add darwin-x86_64 updater "$f" "$sig"; continue ;;
+              *win-x64*.exe|*win-x64*.msi|*.msi) plat=windows-x86_64; kind=installer; [[ "$f" == *.msi ]] && kind=msi ;;
+              *.exe)            plat=windows-x86_64; kind=installer ;;
+              *.apk)            plat=android;        kind=apk ;;
+              *mac-arm64*.dmg)  plat=darwin-aarch64; kind=dmg ;;
+              *mac-x64*.dmg)    plat=darwin-x86_64;  kind=dmg ;;
+              *.AppImage)       plat=linux-x86_64;   kind=appimage ;;
+              *.deb)            plat=linux-x86_64;   kind=deb ;;
+              *.jar)            plat=server;         kind=jar ;;
+              *) continue ;;
+            esac
+            add "$plat" "$kind" "$f"
+            # Un installeur Windows / AppImage signé par Tauri sert aussi d'artefact de mise à jour
+            if [ -n "$sig" ]; then add "$plat" updater "$f" "$sig"; fi
+          done
+
+          channel=stable; [ "$PRERELEASE" = "true" ] && channel=beta
+          body=$(jq -n --arg slug "$NL_SLUG" --arg v "$TAG" --arg c "$channel" --arg n "$NOTES" --argjson a "$assets" \
+            '{slug:$slug, version:$v, channel:$c, notes:$n, published:true, assets:$a}')
+
+          echo "$body" | jq '.assets | length' | xargs echo "Fichiers détectés :"
+          curl -sS --fail-with-body -X POST "$NL_API_URL?r=ci/release" \
+            -H "Authorization: Bearer $NL_CI_TOKEN" -H "Content-Type: application/json" \
+            -d "$body"

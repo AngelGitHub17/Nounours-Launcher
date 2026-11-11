@@ -1,0 +1,14 @@
+# NounoursLauncher — protections
+Options -Indexes
+
+# Bloquer l'accès direct aux fichiers sensibles
+<FilesMatch "^(config\.php|config\.sample\.php|schema\.sql|README\.md|install\.php)$">
+    Require all denied
+</FilesMatch>
+
+# Transmettre l'en-tête Authorization à PHP (souvent supprimé en CGI/FastCGI)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>

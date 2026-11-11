@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NounoursLauncher</title>
+  <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <!-- Barre latérale -->
+    <aside class="side">
+      <div class="brand">
+        <img src="/logo.png" alt="" draggable="false">
+        <div><b>Nounours</b>Launcher</div>
+      </div>
+      <nav id="nav"></nav>
+      <div class="side-foot">
+        <div id="netState" class="net"></div>
+        <button class="navbtn" id="openSettings"><span class="ic">⚙</span>Réglages</button>
+      </div>
+    </aside>
+
+    <!-- Contenu -->
+    <main class="main">
+      <div id="updateBar" class="updatebar hidden"></div>
+      <header class="top">
+        <div>
+          <h1 id="title">Tous les projets</h1>
+          <p class="sub" id="subtitle"></p>
+        </div>
+        <div class="search">
+          <span>⌕</span>
+          <input id="search" type="search" placeholder="Rechercher…" autocomplete="off">
+        </div>
+        <button class="iconbtn" id="refresh" title="Actualiser (F5)">⟳</button>
+      </header>
+      <section id="content" class="content"></section>
+    </main>
+  </div>
+
+  <!-- Fiche projet -->
+  <div id="detail" class="overlay hidden"><div class="sheet" id="sheet"></div></div>
+
+  <!-- Réglages -->
+  <div id="settings" class="overlay hidden">
+    <div class="sheet small">
+      <div class="sheet-head"><h2>Réglages</h2><button class="iconbtn" data-close>✕</button></div>
+      <div class="sheet-body">
+        <div class="field">
+          <label>Canal des mises à jour</label>
+          <div class="seg" id="channelSeg">
+            <button data-v="stable">Stable</button>
+            <button data-v="beta">Bêta</button>
+          </div>
+          <p class="hint">Le canal bêta reçoit les nouveautés en avant-première (et parfois quelques bugs).</p>
+        </div>
+        <div class="field">
+          <label>Mise à jour du launcher</label>
+          <p class="hint" id="versionInfo"></p>
+          <button class="btn" id="checkUpdate">Rechercher une mise à jour</button>
+          <p class="hint" id="updateMsg"></p>
+        </div>
+        <details class="field">
+          <summary>Avancé</summary>
+          <label for="apiUrl" style="margin-top:10px">Adresse de l'API du catalogue</label>
+          <input id="apiUrl" type="url">
+          <div class="row">
+            <button class="btn" id="saveApi">Enregistrer</button>
+            <button class="btn ghost" id="resetApi">Par défaut</button>
+            <button class="btn ghost" id="clearCache">Vider le cache</button>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

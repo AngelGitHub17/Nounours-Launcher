@@ -1,0 +1,103 @@
+# Construit NounoursLauncher pour Windows, macOS (Apple Silicon + Intel) et Linux,
+# publie la release GitHub puis l'inscrit dans le catalogue (mise à jour auto).
+#
+# Déclenchement : pousser un tag  →  git tag -a v0.2.0 -m "- Nouveauté 1" && git push --tags
+# (le message du tag devient les notes de version ; un tag v0.3.0-beta.1 part dans le canal bêta)
+#
+# Secrets du dépôt : TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD, NL_CI_TOKEN
+# Variable du dépôt : NL_API_URL = https://nounourscorp.fr/launcher/api.php
+
+name: Release NounoursLauncher
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: ''
+          - os: macos-latest
+            args: '--target aarch64-apple-darwin'
+          - os: macos-latest
+            args: '--target x86_64-apple-darwin'
+          - os: ubuntu-22.04
+            args: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dépendances Linux
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'NounoursLauncher ${{ github.ref_name }}'
+          releaseBody: 'Publication en cours…'
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: ${{ matrix.args }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Notes de version (message du tag)
+        id: notes
+        run: |
+          git fetch --tags --force
+          {
+            echo 'text<<__FIN__'
+            git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" | sed '/^-----BEGIN PGP/,$d'
+            echo '__FIN__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publier la release GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ steps.notes.outputs.text }}
+        run: gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft=false --notes "${NOTES:-Nouvelle version}"
+
+      - name: Inscrire dans le catalogue NounoursLauncher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          NOTES: ${{ steps.notes.outputs.text }}
+          NL_API_URL: ${{ vars.NL_API_URL }}
+          NL_CI_TOKEN: ${{ secrets.NL_CI_TOKEN }}
+          NL_SLUG: nounours-launcher
+        run: ./scripts/publish-catalog.sh
