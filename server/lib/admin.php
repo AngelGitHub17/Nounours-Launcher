@@ -115,7 +115,7 @@ function admin_projects(): never
         $p['default_lock_login'] = (bool)($p['default_lock_login'] ?? 0);
         $p['default_lock_coins'] = (int)($p['default_lock_coins'] ?? 0);
         $p['pending'] = count(array_filter($p['releases'], fn($r) => $r['state'] === 'pending'));
-        $p['icon_abs'] = nl_abs_url($p['icon_url']);
+        $p['icon_abs'] = nl_abs_url($p['icon_url']) ?? nl_default_icon($p);
         $out[] = $p;
     }
     nl_json(['projects' => $out]);

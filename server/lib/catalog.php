@@ -222,7 +222,7 @@ function nl_fmt_project(array $p, string $channel, ?string $platform, bool $with
         'type'         => $p['type'],
         'short_desc'   => $p['short_desc'],
         'description'  => $p['description'] ?? '',
-        'icon'         => nl_abs_url($p['icon_url']),
+        'icon'         => nl_abs_url($p['icon_url']) ?? nl_default_icon($p),
         'banner'       => nl_abs_url($p['banner_url']),
         'accent'       => $p['accent_color'],
         'website_url'  => $p['website_url'],
@@ -283,6 +283,19 @@ function nl_best_download(array $project, string $platform, string $channel, ?st
     foreach ($kind !== null ? [$kind] : nl_download_kinds($platform) as $k) {
         $l = nl_latest_for($project, $platform, $channel, $k);
         if ($l) { return $l; }
+    }
+    return null;
+}
+
+/** Icône par défaut d'un projet sans icône : icons/<slug>.png, sinon celle de son type */
+function nl_default_icon(array $p): ?string
+{
+    $dir = dirname(__DIR__);
+    $base = rtrim((string)nl_config()['base_url'], '/');
+    if (($p['type'] ?? '') === 'launcher' && is_file("$dir/logo.png")) { return "$base/logo.png"; }
+    foreach ([(string)$p['slug'], 'type-' . ($p['type'] ?? 'app')] as $name) {
+        $f = "$dir/icons/" . preg_replace('/[^a-z0-9-]/', '', $name) . '.png';
+        if (is_file($f)) { return "$base/icons/" . basename($f) . '?v=' . filemtime($f); }
     }
     return null;
 }
