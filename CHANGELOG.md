@@ -2,6 +2,10 @@
 
 Pour publier une version : `npm run version:set X.Y.Z`, ajoute une section `## X.Y.Z` en haut de cette liste, puis commit et push sur `main`.
 
+## 0.3.4
+
+- Nouveau logo : la tête d'ours NounoursCorp avec une flèche de téléchargement, assorti aux icônes des projets (Windows, macOS, Linux, Android, iOS)
+
 ## 0.3.3
 
 - macOS : l'application est désormais signée (signature locale) ; elle ne s'affiche plus comme « endommagée ». Au premier lancement, autoriser l'ouverture dans Réglages Système → Confidentialité et sécurité

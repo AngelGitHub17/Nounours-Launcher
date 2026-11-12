@@ -2,6 +2,13 @@ import puppeteer from 'puppeteer-core';
 import fs from 'fs';
 const BLUE = 'url(#gb)';
 const glyphs = {
+  // NounoursLauncher : flèche de téléchargement
+  'nounours-launcher': ['#f6b76c', '#2c7be5', `
+    <g transform="translate(145 181) scale(0.5)" fill="url(#gdl)" stroke="url(#gdl)" stroke-linejoin="round" stroke-width="22">
+      <rect x="190" y="8" width="66" height="200" rx="10"/>
+      <path d="M122 214 H322 L222 326 Z"/>
+      <path d="M24 312 H60 V384 H386 V312 H422 V428 H24 Z"/>
+    </g>`],
   // monogrammes
   didikaria: ['#f6b76c', '#2c7be5', `<text x="256" y="335" text-anchor="middle" font-family="Inter" font-weight="900" font-size="128" fill="${BLUE}" letter-spacing="-4">DK</text>`],
   nounourscorp: ['#ffd36b', '#e4791c', `<text x="256" y="335" text-anchor="middle" font-family="Inter" font-weight="900" font-size="128" fill="url(#go)" letter-spacing="-4">NC</text>`],
@@ -141,6 +148,7 @@ const svg = (top, bottom, g) => `<svg xmlns="http://www.w3.org/2000/svg" width="
   <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${top}"/><stop offset="1" stop-color="${bottom}"/></linearGradient>
   <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
   <linearGradient id="gb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3d82ee"/><stop offset="1" stop-color="#1b4fb5"/></linearGradient>
+  <linearGradient id="gdl" x1="0" y1="0" x2="0" y2="440" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#3d82ee"/><stop offset="1" stop-color="#1b4fb5"/></linearGradient>
   <linearGradient id="go" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f29a2e"/><stop offset="1" stop-color="#c25b0c"/></linearGradient>
   <linearGradient id="gtv" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5f6d"/><stop offset="1" stop-color="#8b3dff"/></linearGradient>
   <pattern id="pix" width="28" height="28" patternUnits="userSpaceOnUse"><rect width="14" height="14" fill="#2e7d1f"/><rect x="14" y="14" width="14" height="14" fill="#2e7d1f"/></pattern>
@@ -167,4 +175,8 @@ for (const [name, [t, bo, g]] of Object.entries(glyphs)) {
   await p.evaluate(() => document.fonts.ready);
   await p.screenshot({ path: `/tmp/icons/out/${name}.png`, omitBackground: true, clip: { x: 0, y: 0, width: 512, height: 512 } });
 }
+// Version 1024 px pour les icônes de l'application
+{ const big = await b.newPage(); await big.setViewport({ width: 512, height: 512, deviceScaleFactor: 2 });
+  await big.setContent(`<html><body style="margin:0;background:transparent">${fs.readFileSync('/tmp/icons/out/nounours-launcher.svg')}</body></html>`);
+  await big.screenshot({ path: '/tmp/icons/out/nounours-launcher-1024.png', omitBackground: true, clip: { x: 0, y: 0, width: 512, height: 512 } }); }
 await b.close();
