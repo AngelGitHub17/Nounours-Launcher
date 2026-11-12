@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>NounoursLauncher</title>
   <link rel="stylesheet" href="/src/styles.css">
 </head>
@@ -119,7 +119,7 @@
           </div>
           <p class="hint">Le canal bêta reçoit les nouveautés en avant-première (et parfois quelques bugs).</p>
         </div>
-        <div class="field">
+        <div class="field desktop-apps">
           <label>Mes applis</label>
           <label class="check"><input type="checkbox" id="autoApps"> Mettre à jour automatiquement les applis installées</label>
           <p class="hint">Uniquement celles qui s'installent sans fenêtre (portables, AppImage, installeurs silencieux). Les autres affichent « Mettre à jour ».</p>
@@ -127,7 +127,7 @@
         </div>
         <div class="field">
           <label>Mise à jour du launcher</label>
-          <div class="seg" data-pref="launcherUpdates">
+          <div class="seg" data-pref="launcherUpdates" id="launcherUpdMode">
             <button data-v="auto">Automatique</button><button data-v="ask">Me demander</button>
           </div>
           <p class="hint">Automatique : le launcher se met à jour tout seul (au démarrage, ou après un compte à rebours de 15 s que tu peux reporter).</p>

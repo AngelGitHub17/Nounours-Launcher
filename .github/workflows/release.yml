@@ -120,8 +120,18 @@ jobs:
           prerelease: ${{ needs.prepare.outputs.prerelease }}
           args: ${{ matrix.args }}
 
-  publish:
+  # APK Android signé, ajouté à la même release (voir mobile.yml)
+  mobile:
     needs: [prepare, build]
+    uses: ./.github/workflows/mobile.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+    secrets: inherit
+
+  publish:
+    needs: [prepare, build, mobile]
+    # Le mobile peut échouer sans bloquer la version ordinateur
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       TAG: ${{ needs.prepare.outputs.tag }}
@@ -169,6 +179,7 @@ jobs:
             echo "| macOS Apple Silicon | \`…_aarch64.dmg\` |"
             echo "| macOS Intel | \`…_x64.dmg\` |"
             echo "| Linux | \`….AppImage\`, \`.deb\` ou \`.rpm\` |"
+            echo "| Android | \`…_android.apk\` (autoriser l'installation depuis le navigateur) |"
             echo
             echo "_Les fichiers \`.sig\`, \`.app.tar.gz\` et \`latest.json\` servent à la mise à jour automatique : inutile de les télécharger._"
           } > notes.md

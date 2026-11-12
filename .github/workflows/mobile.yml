@@ -1,0 +1,131 @@
+# Versions mobiles de NounoursLauncher.
+#
+# Android : construit l'APK. Signé avec la clé NounoursCorp si les secrets sont présents
+#   (ANDROID_KEYSTORE = fichier .jks en base64, ANDROID_KEYSTORE_PASSWORD), sinon APK de test.
+#   Appelé par release.yml avec un tag : l'APK signé est ajouté à la release, puis au catalogue.
+# iOS : vérifie que le launcher compile pour iPhone. L'installation se fait depuis le Mac
+#   (Xcode, voir README) : Apple n'autorise pas la diffusion d'un .ipa sans compte développeur.
+#
+# Se lance aussi tout seul à chaque modification de l'appli sur main (vérification + APK téléchargeable
+# dans l'onglet Actions → l'exécution → Artifacts).
+
+name: Mobile NounoursLauncher
+
+on:
+  push:
+    branches: [main]
+    paths: ['src/**', 'src-tauri/**', 'index.html', 'package.json', '.github/workflows/mobile.yml']
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          key: android
+
+      - run: npm ci
+
+      - name: Clé de signature Android
+        id: sign
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE }}
+          PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KS" ] && [ -n "$PW" ]; then
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/nounours-launcher.jks"
+            {
+              echo "storeFile=$RUNNER_TEMP/nounours-launcher.jks"
+              echo "password=$PW"
+              echo "keyAlias=nounours"
+            } > src-tauri/gen/android/keystore.properties
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Secrets ANDROID_KEYSTORE / ANDROID_KEYSTORE_PASSWORD absents : APK de test (non publié)"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Construire l'APK
+        run: |
+          export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          if [ "${{ steps.sign.outputs.signed }}" = "true" ]; then
+            npx tauri android build --apk --target aarch64 armv7 x86_64 --ci
+          else
+            npx tauri android build --apk --debug --target aarch64 x86_64 --ci
+          fi
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          apk=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -1)
+          echo "APK : $apk"
+          mkdir -p out
+          cp "$apk" "out/NounoursLauncher_${version}_android.apk"
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NounoursLauncher-android
+          path: out/*.apk
+          retention-days: 14
+
+      - name: Ajouter l'APK à la release
+        if: ${{ inputs.tag && steps.sign.outputs.signed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag }}" out/*.apk --clobber -R "$GITHUB_REPOSITORY"
+
+  ios:
+    name: ios (vérification de la compilation)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          key: ios
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - run: npm ci && npm run build
+
+      - name: Compiler pour iPhone et pour le simulateur
+        working-directory: src-tauri
+        run: |
+          cargo build --lib --release --target aarch64-apple-ios
+          cargo build --lib --target aarch64-apple-ios-sim
+
+      - name: Générer le projet Xcode
+        run: npx tauri ios init --ci

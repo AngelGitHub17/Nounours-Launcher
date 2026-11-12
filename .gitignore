@@ -1,7 +1,14 @@
 node_modules/
 dist/
 src-tauri/target/
-src-tauri/gen/
+# Projets mobiles générés par Tauri : android/ est versionné (signature), le reste non
+src-tauri/gen/schemas/
+src-tauri/gen/apple/
+src-tauri/gen/android/keystore.properties
+src-tauri/gen/android/app/build/
+src-tauri/gen/android/build/
+*.jks
+*.keystore
 *.key
 .env
 server/config.php

@@ -3,6 +3,9 @@ import { DEFAULT_API, LS, apiUrl, loadCatalog, loadStatus, loadProject, clearCac
 import { esc, md } from './md.js';
 
 const isTauri = '__TAURI_INTERNALS__' in window;
+const isMobilePlatform = pf => pf === 'android' || pf === 'ios';
+/** Appli installée sur ordinateur : installe et lance les applis elle-même */
+const canInstall = () => isTauri && !isMobilePlatform(state.platform);
 const $ = (s, el = document) => el.querySelector(s);
 
 const TYPES = {
@@ -87,6 +90,8 @@ async function initNative() {
   const { listen } = await import('@tauri-apps/api/event');
   state.platform = await invoke('platform_key');
   state.appVersion = await getVersion();
+  document.body.classList.toggle('mobile', isMobilePlatform(state.platform));
+  if (isMobilePlatform(state.platform)) return; // pas d'installation d'applis ni de suivi sur mobile
   await loadInstalled();
   await listen('nl-progress', ev => {
     const p = ev.payload;
@@ -97,7 +102,7 @@ async function initNative() {
 }
 
 async function loadInstalled() {
-  if (!isTauri) return;
+  if (!canInstall()) return;
   try { state.installed = await invoke('installed_apps'); } catch (e) { console.warn(e); }
 }
 
@@ -173,7 +178,7 @@ function renderNav() {
   const items = [
     ['all', '🏠', 'Tous les projets', state.projects.length],
     ['fav', '★', 'Favoris', state.projects.filter(p => state.favs.has(p.slug)).length],
-    ...(isTauri ? [['mine', '📦', 'Mes applis', state.projects.filter(p => state.installed[p.slug]).length, pendingUpdates().length]] : []),
+    ...(canInstall() ? [['mine', '📦', 'Mes applis', state.projects.filter(p => state.installed[p.slug]).length, pendingUpdates().length]] : []),
     ...Object.entries(TYPES).filter(([t]) => counts[t]).map(([t, v]) => [t, v.icon, v.label, counts[t]]),
   ];
   $('#nav').innerHTML = items.map(([v, ic, label, n, upd]) =>
@@ -252,13 +257,13 @@ function primaryAction(p) {
   const b = bestAsset(p);
   const inst = state.installed[p.slug];
   if (state.progress[p.slug]) return { kind: 'busy', label: 'Installation…' };
-  if (b && isTauri) {
+  if (b && canInstall()) {
     if (inst && cmpVer(b.rel.version, inst.version) > 0) return { kind: 'install', label: 'Mettre à jour', ...b };
     if (inst && !inst.exists) return { kind: 'install', label: 'Réinstaller', ...b };
     if (inst) return { kind: 'launch', label: 'Lancer' };
     return { kind: 'install', label: 'Installer', ...b };
   }
-  if (b) return { kind: 'download', label: 'Télécharger', ...b };
+  if (b) return { kind: 'download', label: state.platform === 'android' ? 'Installer' : 'Télécharger', ...b };
   if (p.website_url) return { kind: 'open', label: 'Ouvrir' };
   return { kind: 'details', label: 'Voir' };
 }
@@ -445,7 +450,7 @@ async function openDetail(slug, refresh = false) {
         ${act.kind === 'launch' ? `<button class="btn go" data-act="launch" data-slug="${esc(p.slug)}">▶ Lancer</button>` : ''}
         ${act.kind === 'install' ? `<button class="btn primary" data-act="install" data-slug="${esc(p.slug)}">${esc(act.label)}${inst && act.label === 'Mettre à jour' ? ` · v${esc(inst.version)} → v${esc(b.rel.version)}` : asset?.size ? ` · ${fmtSize(asset.size)}` : ''}</button>` : ''}
         ${act.kind === 'busy' ? `<button class="btn" disabled>Installation…</button>` : ''}
-        ${act.kind === 'download' ? `<button class="btn primary" data-open="${esc(asset.url)}">Télécharger pour ${esc(PLATFORM_NAMES[state.platform] || state.platform)}${asset.size ? ` · ${fmtSize(asset.size)}` : ''}</button>` : ''}
+        ${act.kind === 'download' ? `<button class="btn primary" data-open="${esc(asset.url)}">${state.platform === 'android' ? 'Installer sur Android' : 'Télécharger pour ' + esc(PLATFORM_NAMES[state.platform] || state.platform)}${asset.size ? ` · ${fmtSize(asset.size)}` : ''}</button>` : ''}
         ${p.website_url ? `<button class="btn ${['launch', 'install', 'download', 'busy'].includes(act.kind) ? '' : 'primary'}" data-open="${esc(p.website_url)}">Ouvrir ${p.type === 'site' ? 'le site' : "l'appli web"} ↗</button>` : ''}
         ${p.repo_url ? `<button class="btn ghost" data-open="${esc(p.repo_url)}">Code source ↗</button>` : ''}
         ${inst ? `<button class="btn ghost danger" data-remove="${esc(p.slug)}">${inst.removable ? 'Désinstaller' : 'Retirer du launcher'}</button>` : ''}
@@ -512,9 +517,29 @@ function hideOverlays() {
 
 const UPD = { lastCheck: 0, checking: false, downloaded: false, countdown: null, retry: null };
 
+/** Android : pas de mise à jour intégrée ; on compare avec l'APK du catalogue et on propose de le télécharger */
+async function checkUpdateAndroid(manual) {
+  const msg = t => { if (manual) $('#updateMsg').textContent = t; };
+  try {
+    const p = await loadProject('nounours-launcher', 'android', state.channel);
+    const rel = p?.latest?.android;
+    const apk = rel?.assets?.find(a => a.kind === 'apk');
+    UPD.lastCheck = Date.now(); renderUpdateInfo();
+    if (!apk || cmpVer(rel.version, state.appVersion) <= 0) { msg(`Tu as déjà la dernière version (${state.appVersion}).`); return; }
+    msg(`Version ${rel.version} disponible.`);
+    const bar = $('#updateBar');
+    bar.classList.remove('hidden');
+    bar.innerHTML = `<span>✨ <b>NounoursLauncher ${esc(rel.version)}</b> est disponible.</span>
+      <button class="btn sm primary" data-open="${esc(apk.url)}">Télécharger</button>
+      <button class="iconbtn sm" id="laterUpdate" title="Plus tard">✕</button>`;
+  } catch (e) { msg('Impossible de vérifier : ' + (e?.message || e)); }
+}
+
 async function checkUpdate(manual = false, { startup = false } = {}) {
   const msg = t => { if (manual) $('#updateMsg').textContent = t; };
   if (!isTauri) { msg("Les mises à jour ne fonctionnent que dans l'application installée."); return; }
+  if (state.platform === 'android') return checkUpdateAndroid(manual);
+  if (state.platform === 'ios') { msg("Sur iPhone, les mises à jour passent par l'App Store / TestFlight."); return; }
   if (UPD.checking || state.update?.busy) return;
   UPD.checking = true;
   msg('Recherche…');
@@ -686,7 +711,9 @@ function renderSettings() {
   $('#versionInfo').textContent = `Version installée : ${state.appVersion} · ${PLATFORM_NAMES[state.platform] || state.platform}`;
   $('#apiUrl').value = apiUrl();
   $('#autoApps').checked = state.autoApps;
-  if (isTauri) invoke('apps_folder').then(d => { $('#appsDir').textContent = d; }).catch(() => {});
+  document.querySelectorAll('.desktop-apps').forEach(el => el.classList.toggle('hidden', !canInstall()));
+  $('#launcherUpdMode').classList.toggle('hidden', isMobilePlatform(state.platform));
+  if (canInstall()) invoke('apps_folder').then(d => { $('#appsDir').textContent = d; }).catch(() => {});
 }
 
 // ---------- Événements ----------

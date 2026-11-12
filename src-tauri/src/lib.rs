@@ -2,7 +2,9 @@
 //! L'interface (HTML/JS) fait presque tout ; ici on branche les plugins
 //! et on expose quelques informations sur la machine.
 
+#[cfg(desktop)]
 mod apps;
+#[cfg(desktop)]
 mod detect;
 
 #[cfg(desktop)]
@@ -59,18 +61,22 @@ pub fn run() {
             });
     }
 
+    // Ordinateur : installation et lancement des applis. Mobile : le système s'en charge.
+    #[cfg(desktop)]
+    let builder = builder.manage(apps::AppsState::default()).invoke_handler(tauri::generate_handler![
+        platform_key,
+        apps::installed_apps,
+        apps::apps_folder,
+        apps::install_app,
+        apps::launch_app,
+        apps::remove_app,
+    ]);
+    #[cfg(mobile)]
+    let builder = builder.invoke_handler(tauri::generate_handler![platform_key]);
+
     builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
-        .manage(apps::AppsState::default())
-        .invoke_handler(tauri::generate_handler![
-            platform_key,
-            apps::installed_apps,
-            apps::apps_folder,
-            apps::install_app,
-            apps::launch_app,
-            apps::remove_app,
-        ])
         .run(tauri::generate_context!())
         .expect("erreur au démarrage de NounoursLauncher");
 }
