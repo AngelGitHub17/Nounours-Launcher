@@ -74,8 +74,11 @@ try {
             nl_fail('Route inconnue', 404);
     }
 } catch (Throwable $e) {
-    $msg = 'Erreur serveur';
-    if (nl_config()['debug'] ?? false) { $msg .= ' : ' . $e->getMessage() . ' @' . basename($e->getFile()) . ':' . $e->getLine(); }
+    $detail = $e->getMessage() . ' @' . basename($e->getFile()) . ':' . $e->getLine();
+    $ref = nl_log_error($route, $detail);
+    $msg = 'Erreur serveur (réf. ' . $ref . ')';
+    // Détail visible en mode debug, ou pour un appel déjà authentifié (admin / CI)
+    if ((nl_config()['debug'] ?? false) || !empty($GLOBALS['NL_TRUSTED'])) { $msg .= ' : ' . $detail; }
     nl_json(['error' => $msg], 500);
 }
 

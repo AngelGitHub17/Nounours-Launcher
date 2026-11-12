@@ -163,7 +163,7 @@ function nl_is_admin(): bool
  */
 function nl_require_admin(): void
 {
-    if (nl_is_token_admin()) { return; }
+    if (nl_is_token_admin()) { $GLOBALS['NL_TRUSTED'] = true; return; }
     if (!nl_na_load()) { nl_fail('shared/auth.php introuvable (voir shared_auth dans config.php)', 500); }
     if (!auth_is_logged()) { nl_fail('Connexion NounoursAccount requise', 401); }
     if (!auth_is_admin()) { nl_fail('Réservé aux administrateurs', 403); }
@@ -174,6 +174,7 @@ function nl_require_admin(): void
             nl_fail('Jeton de sécurité expiré : recharge la page', 419);
         }
     }
+    $GLOBALS['NL_TRUSTED'] = true;
 }
 
 /** Jeton CSRF de la session (créé à l'ouverture du panel) */
@@ -193,6 +194,17 @@ function nl_require_ci(): void
     if (!nl_token_matches($t, $hashes) && !nl_is_token_admin()) {
         nl_fail('Jeton CI invalide', 401);
     }
+    $GLOBALS['NL_TRUSTED'] = true;
+}
+
+/** Journal des erreurs serveur (cache/errors.log, 200 Ko max) ; renvoie une référence courte */
+function nl_log_error(string $route, string $detail): string
+{
+    $ref = substr(bin2hex(random_bytes(4)), 0, 8);
+    $file = dirname(__DIR__) . '/cache/errors.log';
+    if (is_file($file) && filesize($file) > 200_000) { @rename($file, $file . '.old'); }
+    @file_put_contents($file, gmdate('c') . " [$ref] $route : $detail\n", FILE_APPEND | LOCK_EX);
+    return $ref;
 }
 
 /** Niveau de visibilité accessible par l'appelant : public < members < private */
