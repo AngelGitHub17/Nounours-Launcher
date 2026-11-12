@@ -4,6 +4,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/github.php';
+
 function nl_norm_version(string $v): string
 {
     return ltrim(trim($v), 'vV');
@@ -132,7 +134,7 @@ function nl_fmt_asset(array $a): array
     return [
         'platform'     => $a['platform'],
         'kind'         => $a['kind'],
-        'url'          => $a['url'],
+        'url'          => nl_public_asset_url($a),  // lien relais si le fichier vient d'un dépôt GitHub privé
         'size'         => $a['size'] !== null ? (int)$a['size'] : null,
         'sha256'       => $a['sha256'],
         'signature'    => $a['signature'],
@@ -209,7 +211,7 @@ function nl_fmt_project(array $p, string $channel, ?string $platform, bool $with
         'banner'       => nl_abs_url($p['banner_url']),
         'accent'       => $p['accent_color'],
         'website_url'  => $p['website_url'],
-        'repo_url'     => $p['repo_url'],
+        'repo_url'     => nl_public_repo_url($p['repo_url']), // masqué si le dépôt est privé
         'status'       => $p['status'],
         'visibility'   => $p['visibility'],
         'has_status'   => !empty($p['status_check_url']),

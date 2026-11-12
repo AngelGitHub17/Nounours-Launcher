@@ -17,7 +17,8 @@
       <nav id="nav"></nav>
       <div class="side-foot">
         <div id="netState" class="net"></div>
-        <button class="navbtn" id="openSettings"><span class="ic">⚙</span>Réglages</button>
+        <button class="navbtn" id="openSettings" title="Réglages"><span class="ic">⚙</span><span class="lbl">Réglages</span></button>
+        <button class="navbtn" id="sideToggle" title="Réduire / agrandir la barre"><span class="ic">«</span><span class="lbl">Réduire la barre</span></button>
       </div>
     </aside>
 
@@ -37,6 +38,7 @@
         <button class="iconbtn" id="refresh" title="Actualiser (F5)">⟳</button>
       </header>
       <section id="content" class="content"></section>
+      <button class="iconbtn" id="toTop" title="Revenir en haut">↑</button>
     </main>
   </div>
 
@@ -48,6 +50,67 @@
     <div class="sheet small">
       <div class="sheet-head"><h2>Réglages</h2><button class="iconbtn" data-close>✕</button></div>
       <div class="sheet-body">
+        <section class="settings-group">
+          <h3>Apparence</h3>
+          <div class="field">
+            <label>Thème</label>
+            <div class="seg" data-pref="theme">
+              <button data-v="system">Système</button><button data-v="dark">Sombre</button><button data-v="light">Clair</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Couleur</label>
+            <div class="swatches" id="accentSwatches"></div>
+          </div>
+          <div class="field">
+            <label>Affichage des projets</label>
+            <div class="seg" data-pref="density">
+              <button data-v="cards">Cartes</button><button data-v="compact">Compact</button><button data-v="list">Liste</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Barre latérale</label>
+            <div class="seg" data-pref="sidebar">
+              <button data-v="auto">Automatique</button><button data-v="expanded">Étendue</button><button data-v="collapsed">Réduite</button>
+            </div>
+            <p class="hint">Automatique : réduite quand la fenêtre est étroite.</p>
+          </div>
+        </section>
+
+        <section class="settings-group">
+          <h3>Catalogue</h3>
+          <div class="field-grid">
+            <div class="field">
+              <label for="prefStart">Page au démarrage</label>
+              <select id="prefStart" data-pref-select="startView">
+                <option value="last">La dernière ouverte</option>
+                <option value="all">Tous les projets</option>
+                <option value="fav">Favoris</option>
+                <option value="mine">Mes applis</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="prefSort">Trier par</label>
+              <select id="prefSort" data-pref-select="sort">
+                <option value="catalog">Ordre du catalogue</option>
+                <option value="name">Nom (A → Z)</option>
+                <option value="recent">Dernières mises à jour</option>
+              </select>
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" data-pref-check="showDev"> Afficher les projets en développement</label>
+          <label class="check"><input type="checkbox" data-pref-check="showArchived"> Afficher les projets archivés</label>
+          <label class="check"><input type="checkbox" data-pref-check="groupByType"> Regrouper par type sur l'accueil</label>
+        </section>
+
+        <section class="settings-group desktop-only">
+          <h3>Démarrage</h3>
+          <label class="check"><input type="checkbox" id="autostart"> Lancer NounoursLauncher au démarrage de l'ordinateur</label>
+          <p class="hint">Il démarre alors réduit dans la barre des tâches, pour vérifier les mises à jour en arrière-plan.</p>
+        </section>
+
+        <section class="settings-group">
+        <h3>Mises à jour</h3>
         <div class="field">
           <label>Canal des mises à jour</label>
           <div class="seg" id="channelSeg">
@@ -68,6 +131,7 @@
           <button class="btn" id="checkUpdate">Rechercher une mise à jour</button>
           <p class="hint" id="updateMsg"></p>
         </div>
+        </section>
         <details class="field">
           <summary>Avancé</summary>
           <label for="apiUrl" style="margin-top:10px">Adresse de l'API du catalogue</label>
@@ -76,6 +140,7 @@
             <button class="btn" id="saveApi">Enregistrer</button>
             <button class="btn ghost" id="resetApi">Par défaut</button>
             <button class="btn ghost" id="clearCache">Vider le cache</button>
+            <button class="btn ghost" id="resetPrefs">Réinitialiser l'apparence</button>
           </div>
         </details>
       </div>

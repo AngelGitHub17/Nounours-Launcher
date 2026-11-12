@@ -122,6 +122,7 @@ details summary{cursor:pointer;color:var(--accent2);font-size:13px;margin-top:6p
 .t.err{background:#4a1f26;border-color:#ff6b6b88}
 @keyframes fade{from{opacity:0;transform:translateY(6px)}}
 .empty{padding:40px;text-align:center;color:var(--muted)}
+.ghbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:-4px 0 12px}
 .me{display:flex;align-items:center;gap:8px;color:var(--text);text-decoration:none;padding:4px 10px 4px 4px;border-radius:999px;border:1px solid var(--line);background:var(--glass)}
 .me img{width:30px;height:30px;border-radius:50%;object-fit:cover}
 .settings{padding:16px 20px;margin-bottom:18px}
@@ -148,6 +149,7 @@ pre{padding:10px;white-space:pre-wrap;user-select:all}
       <h3>Réglages</h3>
       <p><b>Adresse de l'API</b> (à mettre dans le launcher et dans la variable GitHub <code>NL_API_URL</code>) :<br><code id="apiUrl"></code></p>
       <p><b>Page de téléchargement du launcher</b> : <a id="pageUrl" target="_blank" rel="noopener" style="color:var(--accent2)"></a> — <span id="dlCount" class="muted"></span></p>
+      <p><b>Jeton GitHub du serveur</b> (dépôts privés) : <span id="ghToken" class="muted"></span></p>
       <p><b>Jeton CI</b> — permet à GitHub Actions de publier tes versions toutes seules. <span id="ciState" class="muted"></span></p>
       <p><button class="btn primary sm" id="ciNew">Générer un jeton CI</button> <button class="btn danger sm hidden" id="ciRevoke">Révoquer</button></p>
       <div id="ciShow" class="hidden"><p>Copie-le maintenant dans le secret GitHub <code>NL_CI_TOKEN</code> : il ne sera plus jamais affiché.</p><pre id="ciToken"></pre></div>
@@ -194,7 +196,11 @@ pre{padding:10px;white-space:pre-wrap;user-select:all}
         <h3>Liens & apparence</h3>
         <div class="row">
           <div class="field"><label>Site / lien « Ouvrir »</label><input name="website_url" placeholder="https://"></div>
-          <div class="field"><label>Dépôt</label><input name="repo_url" placeholder="https://github.com/…"></div>
+          <div class="field"><label>Dépôt (lien « Code source »)</label><input name="repo_url" placeholder="https://github.com/…"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Dépôt GitHub des versions <span class="muted">(propriétaire/nom, privé possible)</span></label><input name="github_repo" placeholder="AngelGitHub17/MonAppli"></div>
+          <div class="field"><label>&nbsp;</label><p class="muted" style="margin:6px 0 0;font-size:12px">Dépôt privé : le launcher récupère uniquement les installeurs, via le serveur. Le code et le lien « Code source » restent cachés.</p></div>
         </div>
         <div class="row">
           <div class="field"><label>Vérification d'état</label><input name="status_check_url" placeholder="https://… · tcp://hote:port · mc://hote:25565"></div>
@@ -209,6 +215,10 @@ pre{padding:10px;white-space:pre-wrap;user-select:all}
     </form>
     <section id="relSection" class="hidden">
       <h3>Versions</h3>
+      <div class="ghbar">
+        <button type="button" class="btn sm" id="ghImport">⬇ Importer les versions depuis GitHub</button>
+        <span class="muted" id="ghState" style="font-size:12.5px"></span>
+      </div>
       <div id="releases"></div>
       <details id="newRelDetails">
         <summary>+ Ajouter une version</summary>
@@ -276,6 +286,9 @@ async function loadSettings() {
     $('#ciState').textContent = s.ci_token_set ? `(un jeton existe, créé le ${new Date(s.ci_token_at).toLocaleString('fr-FR')})` : '(aucun jeton pour l\'instant)';
     $('#ciNew').textContent = s.ci_token_set ? 'Remplacer le jeton CI' : 'Générer un jeton CI';
     $('#ciRevoke').classList.toggle('hidden', !s.ci_token_set);
+    $('#ghToken').innerHTML = s.github_token
+      ? 'configuré ✓'
+      : 'non configuré — ajoute <code>github_token</code> dans <code>launcher/config.php</code> (jeton « fine-grained », permission Contents : lecture seule)';
   } catch (e) { toast(e.message, true); }
 }
 $('#settingsBtn').onclick = () => { const s = $('#settings'); s.classList.toggle('hidden'); if (!s.classList.contains('hidden')) loadSettings(); };
@@ -356,6 +369,7 @@ function openProject(p, keepScroll = false) {
   }
   updateIconPrev();
   if (p) renderReleases(p);
+  if (p && !keepScroll) checkGithub(p);
 }
 function updateIconPrev() {
   const url = pForm.icon_url.value.trim();
@@ -383,6 +397,31 @@ $('#delProject').onclick = async () => {
   if (!current || !confirm(`Supprimer « ${current.name} » et toutes ses versions ?`)) return;
   try { await api('admin/project/delete', { id: current.id }); toast('Projet supprimé'); $('#closeDrawer').click(); await load(); }
   catch (e) { toast(e.message, true); }
+};
+
+// ---------- GitHub ----------
+async function checkGithub(p) {
+  const repo = p.github_repo || ((p.repo_url || '').match(/^https:\/\/github\.com\/([^/]+\/[^/#?]+)/) || [])[1];
+  $('#ghImport').disabled = !repo;
+  if (!repo) { $('#ghState').textContent = 'Renseigne le dépôt GitHub du projet pour importer ses versions.'; return; }
+  $('#ghState').textContent = 'Vérification de ' + repo + '…';
+  try {
+    const r = await api('admin/github/check', { repo: repo.replace(/\.git$/, '') });
+    if (!r.token) $('#ghState').textContent = `${repo} — sans jeton GitHub, seuls les dépôts publics sont accessibles.`;
+    else if (!r.valid) $('#ghState').textContent = 'Le jeton GitHub du serveur est refusé (expiré ?).';
+    else if (!r.repo.access) $('#ghState').textContent = `${repo} — inaccessible : ajoute ce dépôt au jeton GitHub.`;
+    else $('#ghState').textContent = `${repo} — ${r.repo.private ? '🔒 privé : seuls les installeurs seront distribués' : 'public'} ✓`;
+  } catch (e) { $('#ghState').textContent = e.message; }
+}
+$('#ghImport').onclick = async () => {
+  if (!current) return;
+  const b = $('#ghImport'); b.disabled = true; b.textContent = 'Import en cours…';
+  try {
+    const r = await api('admin/github/import', { project_id: current.id });
+    toast(`${r.releases} version(s), ${r.assets} installeur(s) importés depuis ${r.repo}` + (r.skipped.length ? ` · ignorés : ${r.skipped.join(', ')}` : ''));
+    await load();
+  } catch (e) { toast(e.message, true); }
+  finally { b.disabled = false; b.textContent = '⬇ Importer les versions depuis GitHub'; }
 };
 
 // Upload d'images

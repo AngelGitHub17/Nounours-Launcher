@@ -27,8 +27,34 @@ function nl_admin_dispatch(string $route): never
         'admin/asset/save'     => admin_asset_save(),
         'admin/asset/delete'   => admin_delete('nl_assets'),
         'admin/upload'         => admin_upload(),
+        'admin/github/import'  => nl_json(['ok' => true] + nl_gh_import((int)(nl_input()['project_id'] ?? 0))),
+        'admin/github/check'   => admin_github_check(),
         default                => nl_fail('Route admin inconnue', 404),
     };
+}
+
+function nl_github_repo_input(array $in): ?string
+{
+    $v = nl_str($in, 'github_repo', 140);
+    if ($v === null) { return null; }
+    $v = nl_gh_repo_from_url($v) ?? $v; // accepte aussi une adresse github.com/…
+    if (!preg_match('#^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$#', $v)) { nl_fail('Dépôt GitHub invalide : attendu « propriétaire/nom »'); }
+    return $v;
+}
+
+/** Vérifie le jeton GitHub du serveur et l'accès à un dépôt */
+function admin_github_check(): never
+{
+    if (nl_gh_token() === '') { nl_json(['token' => false]); }
+    [$code, $rate] = nl_gh_request('/rate_limit');
+    $out = ['token' => true, 'valid' => $code === 200, 'remaining' => $rate['resources']['core']['remaining'] ?? null];
+    $repo = nl_str(nl_input(), 'repo', 140);
+    if ($repo) {
+        [$c2, $r] = nl_gh_request('/repos/' . $repo);
+        $out['repo'] = ['name' => $repo, 'access' => $c2 === 200, 'private' => (bool)($r['private'] ?? false)];
+        if ($c2 === 200) { nl_setting_set('gh:private:' . strtolower($repo), (($r['private'] ?? false) ? '1' : '0') . '|' . time()); }
+    }
+    nl_json($out);
 }
 
 function admin_settings(): never
@@ -39,6 +65,7 @@ function admin_settings(): never
         'api_url'      => rtrim((string)nl_config()['base_url'], '/') . '/api.php',
         'page_url'     => rtrim((string)nl_config()['base_url'], '/') . '/',
         'downloads'    => (int)(nl_setting('dl:' . nl_config()['launcher_slug']) ?? 0),
+        'github_token' => nl_gh_token() !== '',
     ]);
 }
 
@@ -108,6 +135,7 @@ function admin_project_save(): never
         'accent_color'     => $accent,
         'website_url'      => nl_url($in, 'website_url'),
         'repo_url'         => nl_url($in, 'repo_url'),
+        'github_repo'      => nl_github_repo_input($in),
         'status'           => nl_enum($in, 'status', NL_STATUSES, 'dev'),
         'visibility'       => nl_enum($in, 'visibility', NL_VISIBILITIES, 'public'),
         'status_check_url' => $status,

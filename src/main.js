@@ -19,12 +19,30 @@ const PLATFORM_NAMES = {
   'linux-x86_64': 'Linux', 'linux-aarch64': 'Linux ARM', android: 'Android', ios: 'iOS', web: 'Web', server: 'Serveur',
 };
 
+// ---------- Préférences (Réglages) ----------
+const DEFAULT_PREFS = {
+  theme: 'system',        // system | dark | light
+  accent: '#ff9a1f',
+  density: 'cards',       // cards | compact | list
+  sidebar: 'auto',        // auto | expanded | collapsed
+  startView: 'last',      // last | all | fav | mine
+  sort: 'catalog',        // catalog | name | recent
+  showDev: true,
+  showArchived: false,
+  groupByType: true,
+};
+const ACCENTS = [
+  ['#ff9a1f', 'Orange NounoursCorp'], ['#3d9bff', 'Bleu'], ['#9b6bff', 'Violet'], ['#2fc788', 'Vert'],
+  ['#ff5c8a', 'Rose'], ['#ff5a4e', 'Rouge'], ['#f5c400', 'Jaune'], ['#14b8c6', 'Turquoise'],
+];
+const prefs = { ...DEFAULT_PREFS, ...LS.get('nl.prefs', {}) };
+
 const state = {
   platform: 'windows-x86_64',
   channel: LS.get('nl.channel', 'stable'),
   projects: [],
   status: {},
-  view: LS.get('nl.view', 'all'),
+  view: prefs.startView === 'last' ? LS.get('nl.view', 'all') : prefs.startView,
   query: '',
   favs: new Set(LS.get('nl.favs', [])),
   offline: false,
@@ -116,15 +134,29 @@ async function refreshStatus() {
 
 // ---------- Rendu ----------
 
+function lastUpdate(p) {
+  let t = Date.parse(p.updated_at) || 0;
+  for (const r of Object.values(p.latest || {})) t = Math.max(t, Date.parse(r.pub_date) || 0);
+  return t;
+}
+
 function visibleProjects() {
   const q = state.query.trim().toLowerCase();
-  return state.projects.filter(p => {
+  const list = state.projects.filter(p => {
+    // Les applis installées restent visibles même si leur statut est masqué
+    if (!state.installed[p.slug]) {
+      if (p.status === 'dev' && !prefs.showDev) return false;
+      if (p.status === 'archived' && !prefs.showArchived) return false;
+    }
     if (state.view === 'fav' && !state.favs.has(p.slug)) return false;
     if (state.view === 'mine' && !state.installed[p.slug]) return false;
     if (!['all', 'fav', 'mine'].includes(state.view) && p.type !== state.view) return false;
     if (!q) return true;
     return [p.name, p.short_desc, p.slug, ...(p.tags || [])].join(' ').toLowerCase().includes(q);
   });
+  if (prefs.sort === 'name') list.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+  else if (prefs.sort === 'recent') list.sort((a, b) => lastUpdate(b) - lastUpdate(a));
+  return list;
 }
 
 function render() {
@@ -144,7 +176,7 @@ function renderNav() {
     ...Object.entries(TYPES).filter(([t]) => counts[t]).map(([t, v]) => [t, v.icon, v.label, counts[t]]),
   ];
   $('#nav').innerHTML = items.map(([v, ic, label, n, upd]) =>
-    `<button class="navbtn ${state.view === v ? 'on' : ''}" data-view="${v}"><span class="ic">${ic}</span>${esc(label)}${upd ? `<span class="count upd" title="Mises à jour">${upd}↑</span>` : `<span class="count">${n}</span>`}</button>`
+    `<button class="navbtn ${state.view === v ? 'on' : ''}" data-view="${v}" title="${esc(label)}"><span class="ic">${ic}</span><span class="lbl">${esc(label)}</span>${upd ? `<span class="count upd" title="Mises à jour">${upd}↑</span>` : `<span class="count">${n}</span>`}</button>`
   ).join('');
 }
 
@@ -156,12 +188,15 @@ function renderNet() {
   const el = $('#netState');
   if (state.offline) {
     el.className = 'net off';
-    el.innerHTML = `<i></i>Hors ligne${state.fetchedAt ? `<small>copie de ${timeFr(state.fetchedAt)}</small>` : ''}`;
+    el.innerHTML = `<i></i><span>Hors ligne</span>${state.fetchedAt ? `<small>copie de ${timeFr(state.fetchedAt)}</small>` : ''}`;
+    el.title = 'Hors ligne';
   } else {
     const st = Object.values(state.status);
     const down = st.filter(s => !s.up).length;
     el.className = 'net ' + (down ? 'warn' : 'on');
-    el.innerHTML = `<i></i>${down ? `${down} service${down > 1 ? 's' : ''} hors ligne` : 'Tout fonctionne'}<small>mis à jour à ${timeFr(state.fetchedAt)}</small>`;
+    const label = down ? `${down} service${down > 1 ? 's' : ''} hors ligne` : 'Tout fonctionne';
+    el.innerHTML = `<i></i><span>${label}</span><small>mis à jour à ${timeFr(state.fetchedAt)}</small>`;
+    el.title = label;
   }
 }
 
@@ -350,7 +385,7 @@ function renderGrid() {
     html = state.view === 'fav' && !state.query
       ? `<div class="empty"><div class="big">★</div><h2>Aucun favori</h2><p>Clique sur l'étoile d'un projet pour le retrouver ici.</p></div>`
       : `<div class="empty"><div class="big">🔍</div><h2>Aucun résultat</h2><p>Essaie un autre mot-clé.</p></div>`;
-  } else if (state.view === 'all' && !state.query) {
+  } else if (state.view === 'all' && !state.query && prefs.groupByType) {
     // Accueil : favoris d'abord, puis une section par type
     const favs = list.filter(p => state.favs.has(p.slug));
     if (favs.length) html += `<h2 class="section">★ Favoris</h2><div class="grid">${favs.map(cardHtml).join('')}</div>`;
@@ -509,7 +544,52 @@ async function installUpdate() {
 
 // ---------- Réglages ----------
 
+// ---------- Apparence ----------
+
+function inkFor(hex) {
+  const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#1c1200' : '#ffffff';
+}
+
+function applySidebar() {
+  const collapsed = prefs.sidebar === 'collapsed' || (prefs.sidebar === 'auto' && window.innerWidth < 900);
+  $('.shell').classList.toggle('side-collapsed', collapsed);
+  $('#sideToggle .lbl').textContent = collapsed ? 'Agrandir la barre' : 'Réduire la barre';
+}
+
+function applyPrefs() {
+  const dark = prefs.theme === 'dark' || (prefs.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.documentElement.style.setProperty('--accent', prefs.accent);
+  document.documentElement.style.setProperty('--accent-ink', inkFor(prefs.accent));
+  document.body.classList.remove('density-cards', 'density-compact', 'density-list');
+  document.body.classList.add('density-' + prefs.density);
+  applySidebar();
+}
+
+function savePrefs() {
+  LS.set('nl.prefs', prefs);
+  applyPrefs();
+}
+
+async function renderAutostart() {
+  const box = $('#autostart');
+  const desktop = isTauri && !['android', 'ios'].includes(state.platform);
+  document.querySelectorAll('.desktop-only').forEach(el => el.classList.toggle('hidden', !desktop));
+  if (!desktop) return;
+  try {
+    const { isEnabled } = await import('@tauri-apps/plugin-autostart');
+    box.checked = await isEnabled();
+  } catch { box.closest('.settings-group').classList.add('hidden'); }
+}
+
 function renderSettings() {
+  document.querySelectorAll('[data-pref]').forEach(seg => seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === prefs[seg.dataset.pref])));
+  document.querySelectorAll('[data-pref-select]').forEach(sel => { sel.value = prefs[sel.dataset.prefSelect]; });
+  document.querySelectorAll('[data-pref-check]').forEach(c => { c.checked = !!prefs[c.dataset.prefCheck]; });
+  $('#accentSwatches').innerHTML = ACCENTS.map(([c, name]) =>
+    `<button class="swatch ${c === prefs.accent ? 'on' : ''}" data-accent="${c}" title="${esc(name)}" style="background:${c}"></button>`).join('');
+  renderAutostart();
   document.querySelectorAll('#channelSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === state.channel));
   $('#versionInfo').textContent = `Version installée : ${state.appVersion} · ${PLATFORM_NAMES[state.platform] || state.platform}`;
   $('#apiUrl').value = apiUrl();
@@ -595,6 +675,45 @@ $('#saveApi').addEventListener('click', () => {
   LS.set('nl.api', v); clearCache(); refreshCatalog(); refreshStatus(); toast('Adresse enregistrée');
 });
 $('#resetApi').addEventListener('click', () => { LS.set('nl.api', DEFAULT_API); renderSettings(); clearCache(); refreshCatalog(); refreshStatus(); });
+// Réglages d'apparence et de catalogue
+document.querySelectorAll('[data-pref]').forEach(seg => seg.addEventListener('click', e => {
+  const b = e.target.closest('button[data-v]');
+  if (!b) return;
+  prefs[seg.dataset.pref] = b.dataset.v;
+  savePrefs(); renderSettings(); render();
+}));
+document.querySelectorAll('[data-pref-select]').forEach(sel => sel.addEventListener('change', () => {
+  prefs[sel.dataset.prefSelect] = sel.value; savePrefs(); render();
+}));
+document.querySelectorAll('[data-pref-check]').forEach(c => c.addEventListener('change', () => {
+  prefs[c.dataset.prefCheck] = c.checked; savePrefs(); render();
+}));
+$('#accentSwatches').addEventListener('click', e => {
+  const b = e.target.closest('[data-accent]');
+  if (!b) return;
+  prefs.accent = b.dataset.accent; savePrefs(); renderSettings();
+});
+$('#resetPrefs').addEventListener('click', () => {
+  Object.assign(prefs, DEFAULT_PREFS); savePrefs(); renderSettings(); render(); toast('Apparence réinitialisée');
+});
+$('#autostart').addEventListener('change', async e => {
+  try {
+    const m = await import('@tauri-apps/plugin-autostart');
+    if (e.target.checked) await m.enable(); else await m.disable();
+    toast(e.target.checked ? 'Lancement au démarrage activé' : 'Lancement au démarrage désactivé');
+  } catch (err) { toast('Impossible : ' + (err?.message || err), 'err'); e.target.checked = !e.target.checked; }
+});
+$('#sideToggle').addEventListener('click', () => {
+  prefs.sidebar = $('.shell').classList.contains('side-collapsed') ? 'expanded' : 'collapsed';
+  savePrefs();
+});
+window.addEventListener('resize', applySidebar);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (prefs.theme === 'system') applyPrefs(); });
+
+// Bouton « revenir en haut »
+$('#content').addEventListener('scroll', e => $('#toTop').classList.toggle('show', e.target.scrollTop > 500), { passive: true });
+$('#toTop').addEventListener('click', () => $('#content').scrollTo({ top: 0 }));
+
 $('#autoApps').addEventListener('change', e => { state.autoApps = e.target.checked; LS.set('nl.autoApps', state.autoApps); });
 $('#clearCache').addEventListener('click', () => { clearCache(); refreshCatalog(); toast('Cache vidé'); });
 
@@ -605,6 +724,8 @@ document.addEventListener('error', e => { if (e.target.tagName === 'IMG' && e.ta
 document.addEventListener('contextmenu', e => { if (!e.target.closest('input, textarea, .md')) e.preventDefault(); });
 
 // ---------- Démarrage ----------
+
+applyPrefs();
 
 (async () => {
   try { await initNative(); } catch (e) { console.warn(e); }

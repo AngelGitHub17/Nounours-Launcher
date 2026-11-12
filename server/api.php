@@ -11,6 +11,7 @@
  *   ?r=launcher/update&target={{target}}&arch={{arch}}&current={{current_version}}[&channel=...]  (format Tauri)
  *   ?r=status
  *   ?r=meta
+ *   ?r=asset&id=N                    → téléchargement relais (fichiers de dépôts GitHub privés)
  *   ?r=download[&slug=xxx][&platform=auto|windows-x86_64|…][&kind=…][&channel=…]  → redirige vers le bon installeur
  * Admin (POST, Authorization: Bearer <jeton>) :
  *   ?r=admin/projects, admin/project/save, admin/project/delete,
@@ -61,6 +62,9 @@ try {
 
         case 'download':
             route_download();
+
+        case 'asset':
+            route_asset();
 
         case 'status':
             require __DIR__ . '/lib/status.php';
@@ -195,7 +199,7 @@ function route_launcher_update(): never
         'version'   => nl_norm_version($l['release']['version']),
         'notes'     => $l['release']['notes'] ?? '',
         'pub_date'  => gmdate('Y-m-d\TH:i:s\Z', strtotime($l['release']['pub_date'] . ' UTC')),
-        'url'       => $l['asset']['url'],
+        'url'       => nl_public_asset_url($l['asset']),
         'signature' => $l['asset']['signature'],
     ]);
 }
@@ -231,6 +235,6 @@ function route_download(): never
         nl_db()->prepare("INSERT INTO nl_settings (k, v) VALUES (?, '1') ON DUPLICATE KEY UPDATE v = CAST(v AS UNSIGNED) + 1")
                ->execute(['dl:' . $slug]);
     } catch (Throwable) { /* le compteur ne doit jamais bloquer un téléchargement */ }
-    header('Location: ' . $best['asset']['url'], true, 302);
+    header('Location: ' . nl_public_asset_url($best['asset']), true, 302);
     exit;
 }

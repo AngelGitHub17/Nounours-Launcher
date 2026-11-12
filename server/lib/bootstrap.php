@@ -240,9 +240,9 @@ function nl_setting_set(string $key, ?string $value): void
 function nl_ensure_schema(): void
 {
     $dir = dirname(__DIR__) . '/cache';
-    if (is_file("$dir/.schema_v2")) { return; }
+    if (is_file("$dir/.schema_v3")) { return; }
     $flag = "$dir/.schema_v1";
-    if (is_file($flag)) { nl_migrate_v2(); return; }
+    if (is_file($flag)) { nl_migrate_v2(); nl_migrate_v3(); return; }
     $db = nl_db();
     $sql = (string)file_get_contents(dirname(__DIR__) . '/schema.sql');
     $sql = preg_replace('/^\s*--.*$/m', '', $sql) ?? '';
@@ -254,6 +254,23 @@ function nl_ensure_schema(): void
     if (!is_dir(dirname($flag))) { @mkdir(dirname($flag), 0755, true); }
     @file_put_contents($flag, gmdate('c'));
     nl_migrate_v2();
+    nl_migrate_v3();
+}
+
+function nl_has_column(string $table, string $column): bool
+{
+    $st = nl_db()->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?');
+    $st->execute([$table, $column]);
+    return (int)$st->fetchColumn() > 0;
+}
+
+/** v3 : dépôt GitHub du projet (import des releases, dépôts privés) */
+function nl_migrate_v3(): void
+{
+    if (!nl_has_column('nl_projects', 'github_repo')) {
+        nl_db()->exec('ALTER TABLE nl_projects ADD COLUMN github_repo VARCHAR(140) NULL AFTER repo_url');
+    }
+    @file_put_contents(dirname(__DIR__) . '/cache/.schema_v3', gmdate('c'));
 }
 
 /** v2 : chemin de lancement des applis installées par le launcher */

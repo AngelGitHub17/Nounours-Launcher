@@ -56,6 +56,20 @@ Dans le panel (`nounourscorp.fr/launcher/admin/`) :
 
 Il suffit de renseigner les *arguments* et le chemin *à lancer* une seule fois : les versions suivantes, même publiées par GitHub, les reprennent automatiquement.
 
+### Applis publiées dans un dépôt GitHub privé
+
+Le launcher peut distribuer les installeurs d'un dépôt **privé** sans donner accès au dépôt.
+
+1. Sur GitHub, crée un jeton **fine-grained** : *Settings → Developer settings → Fine-grained tokens*. Choisis les dépôts concernés et la permission **Contents : Read-only**.
+2. Colle-le dans `launcher/config.php`, à la ligne `'github_token' => '…'`. Il reste sur le serveur et n'est jamais envoyé aux utilisateurs.
+3. Dans le panel, renseigne le **Dépôt GitHub des versions** du projet (par exemple `AngelGitHub17/MonAppli`), puis clique sur **Importer les versions depuis GitHub**.
+
+L'import ne reprend que les installeurs (`.exe`, `.msi`, `.zip`, `.dmg`, `.AppImage`, `.deb`, `.rpm`, `.apk`, `.jar`). Il ignore le code source, les signatures et les autres fichiers. Les empreintes SHA-256 fournies par GitHub sont reprises automatiquement.
+
+Pour un dépôt privé :
+- le catalogue donne aux utilisateurs un **lien relais** (`api.php?r=asset&id=…`) qui vérifie leurs droits, puis les redirige vers une adresse GitHub temporaire valable quelques minutes ;
+- le bouton « Code source » est masqué.
+
 **Pour tes applis WPF**, le plus simple est un **zip portable** : un `dotnet publish` en self-contained, puis un zip du dossier. Les mises à jour sont alors silencieuses et automatiques.
 
 ## Installer l'environnement (Windows)

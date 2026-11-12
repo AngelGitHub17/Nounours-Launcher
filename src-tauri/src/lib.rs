@@ -40,7 +40,22 @@ pub fn run() {
                     let _ = w.set_focus();
                 }
             }))
-            .plugin(tauri_plugin_updater::Builder::new().build());
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            // Lancement au démarrage de l'ordinateur (activable dans les Réglages) : démarre réduit
+            .plugin(tauri_plugin_autostart::init(
+                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                Some(vec!["--minimized"]),
+            ))
+            // Retient la taille et la position de la fenêtre d'une fois sur l'autre
+            .plugin(tauri_plugin_window_state::Builder::default().build())
+            .setup(|app| {
+                if std::env::args().any(|a| a == "--minimized") {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.minimize();
+                    }
+                }
+                Ok(())
+            });
     }
 
     builder

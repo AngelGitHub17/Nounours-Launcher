@@ -23,6 +23,12 @@ return [
     // Slug du projet qui représente le launcher lui-même (pour l'auto-update Tauri)
     'launcher_slug' => 'nounours-launcher',
 
+    // Jeton GitHub (facultatif) pour les dépôts PRIVÉS : le serveur relaie les installeurs
+    // sans jamais donner accès au dépôt. Jeton « fine-grained », lecture seule :
+    // github.com → Settings → Developer settings → Fine-grained tokens → dépôts choisis,
+    // permission « Contents : Read-only ».
+    'github_token' => '',
+
     // Dépôt GitHub du launcher (lien « Toutes les versions » de la page de téléchargement)
     'github_url' => 'https://github.com/AngelGitHub17/Nounours-Launcher',
 

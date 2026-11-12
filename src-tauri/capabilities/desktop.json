@@ -1,8 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop",
-  "description": "Mise à jour automatique (ordinateur uniquement)",
+  "description": "Mise à jour automatique, lancement au démarrage, taille de fenêtre (ordinateur uniquement)",
   "platforms": ["linux", "macOS", "windows"],
   "windows": ["main"],
-  "permissions": ["updater:default"]
+  "permissions": [
+    "updater:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
+    "window-state:default"
+  ]
 }

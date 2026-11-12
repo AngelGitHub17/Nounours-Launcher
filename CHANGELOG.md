@@ -2,6 +2,15 @@
 
 Pour publier une version : `npm run version:set X.Y.Z`, ajoute une section `## X.Y.Z` en haut de cette liste, puis commit et push sur `main`.
 
+## 0.2.0
+
+- La molette fonctionne partout : seule la liste des projets défile, la barre latérale reste en place
+- Bouton « Revenir en haut », barre latérale réductible (« « ») avec info-bulles
+- Nouveaux réglages : thème clair / sombre / système, couleur, affichage en cartes, compact ou liste
+- Tri (catalogue, nom, dernières mises à jour), page au démarrage, projets en développement / archivés
+- Lancement au démarrage de l'ordinateur (réduit) et taille de fenêtre mémorisée
+- Applis publiées dans un dépôt GitHub privé : installation via le serveur, sans accès au code
+
 ## 0.1.0
 
 - Première version publique de NounoursLauncher

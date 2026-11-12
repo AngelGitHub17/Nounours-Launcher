@@ -1,6 +1,6 @@
 [package]
 name = "nounours-launcher"
-version = "0.1.0"
+version = "0.2.0"
 description = "NounoursLauncher — le launcher de l'écosystème NounoursCorp"
 authors = ["DidiKaria"]
 edition = "2021"
@@ -29,6 +29,8 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-window-state = "2"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

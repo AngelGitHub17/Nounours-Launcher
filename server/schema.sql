@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS nl_projects (
   accent_color     VARCHAR(9)   NULL,                 -- ex. #3aa0ff
   website_url      VARCHAR(500) NULL,                 -- lien "Ouvrir" (sites, web apps)
   repo_url         VARCHAR(500) NULL,
+  github_repo      VARCHAR(140) NULL,                 -- owner/repo : import des releases (dépôt privé possible)
   status           ENUM('online','beta','dev','archived') NOT NULL DEFAULT 'dev',
   visibility       ENUM('public','members','private') NOT NULL DEFAULT 'public',
   status_check_url VARCHAR(500) NULL,                 -- https://..., tcp://hote:port ou mc://hote:port
