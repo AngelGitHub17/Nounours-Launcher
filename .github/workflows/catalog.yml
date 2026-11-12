@@ -1,0 +1,41 @@
+# Réinscrit une release GitHub déjà publiée dans le catalogue NounoursLauncher.
+# Utile si l'inscription a échoué (serveur pas encore à jour, jeton changé…).
+# Lancement : onglet Actions → « Catalogue NounoursLauncher » → Run workflow
+# (ou automatiquement quand ce fichier ou scripts/publish-catalog.sh change sur main).
+
+name: Catalogue NounoursLauncher
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag à inscrire (vide = dernière release)'
+        required: false
+  push:
+    branches: [main]
+    paths: ['.github/workflows/catalog.yml', 'scripts/publish-catalog.sh']
+
+permissions:
+  contents: read
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inscrire dans le catalogue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NL_API_URL: ${{ vars.NL_API_URL || 'https://nounourscorp.fr/launcher/api.php' }}
+          NL_CI_TOKEN: ${{ secrets.NL_CI_TOKEN }}
+          NL_SLUG: nounours-launcher
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$NL_CI_TOKEN" ]; then
+            echo "::error::Secret NL_CI_TOKEN manquant (panel → ⚙ Réglages → Générer un jeton CI)"
+            exit 1
+          fi
+          TAG="${INPUT_TAG:-$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName)}"
+          export TAG
+          export NOTES="$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json body --jq .body | sed '/^---$/,$d')"
+          ./scripts/publish-catalog.sh

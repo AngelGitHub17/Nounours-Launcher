@@ -49,6 +49,14 @@ body=$(jq -n --arg slug "$NL_SLUG" --arg v "$TAG" --arg c "$channel" --arg n "${
   '{slug:$slug, version:$v, channel:$c, notes:$n, published:true, assets:$a}')
 echo "Fichiers envoyés au catalogue :"; jq -r '.assets[] | "  \(.platform)  \(.kind)  \(.url | split("/") | last)"' <<< "$body"
 
-curl -sS --fail-with-body -X POST "$NL_API_URL?r=ci/release" \
-  -H "Authorization: Bearer $NL_CI_TOKEN" -H "Content-Type: application/json" -d "$body"
-echo
+resp=$(mktemp)
+code=$(curl -sS -o "$resp" -w '%{http_code}' -X POST "$NL_API_URL?r=ci/release" \
+  -H "Authorization: Bearer $NL_CI_TOKEN" -H "X-NL-Token: $NL_CI_TOKEN" \
+  -H "Content-Type: application/json" -d "$body" || echo 000)
+answer=$(head -c 600 "$resp" | tr '\n' ' ')
+echo "Réponse du catalogue (HTTP $code) : $answer"
+if [ "$code" != "200" ]; then
+  echo "::error title=Catalogue NounoursLauncher::HTTP $code — $answer"
+  exit 1
+fi
+echo "::notice title=Catalogue NounoursLauncher::$TAG inscrit — $answer"
