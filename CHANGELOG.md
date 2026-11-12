@@ -2,6 +2,15 @@
 
 Pour publier une version : `npm run version:set X.Y.Z`, ajoute une section `## X.Y.Z` en haut de cette liste, puis commit et push sur `main`.
 
+## 0.2.2
+
+- Le launcher trouve tout seul où une appli s'est installée, pour pouvoir la lancer :
+  - Windows : il compare « Programmes et fonctionnalités » avant et après l'installeur (.exe, .msi), puis cherche l'exécutable ; à défaut, le raccourci du menu Démarrer
+  - macOS : il attend la fin de l'installeur .pkg et repère l'appli apparue dans Applications
+  - Linux : il retrouve le raccourci du menu des applications (.deb, .rpm)
+- Si une appli a été déplacée ou installée à part, « Lancer » la recherche par son nom et retient l'emplacement trouvé
+- Le champ « À lancer » du panel reste prioritaire s'il est rempli
+
 ## 0.2.1
 
 - Notes de version bien plus lisibles : listes imbriquées, liens cliquables, une carte par version, la version installée signalée

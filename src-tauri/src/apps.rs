@@ -16,6 +16,8 @@ use std::sync::Mutex;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
+use crate::detect;
+
 /// Empêche deux installations simultanées de la même appli et protège le registre.
 #[derive(Default)]
 pub struct AppsState {
@@ -32,6 +34,9 @@ pub struct InstalledApp {
     /// Dossier géré par le launcher (applis portables / AppImage), supprimé à la désinstallation
     pub dir: Option<String>,
     pub installed_at: u64,
+    /// Nom du projet : sert à retrouver l'appli si son emplacement change ou n'est pas connu
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -53,6 +58,8 @@ pub struct InstallRequest {
     pub kind: String,
     pub install_args: Option<String>,
     pub launch_path: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -281,13 +288,23 @@ async fn download<Rt: Runtime>(app: &AppHandle<Rt>, req: &InstallRequest) -> R<P
 
 /// Installe selon le type de fichier ; renvoie l'entrée du registre
 fn install_file<Rt: Runtime>(app: &AppHandle<Rt>, req: &InstallRequest, file: &Path) -> R<(String, InstalledApp)> {
+    // Chemin indiqué dans le panel : pris seulement s'il existe vraiment après l'installation
     let launch_hint = req.launch_path.as_deref().map(expand_vars).filter(|s| !s.is_empty());
+    let wanted = detect::wanted_names(req.name.as_deref(), &req.slug);
+    let hint_or_detect = |before: &detect::Snapshot| -> Option<String> {
+        launch_hint
+            .clone()
+            .filter(|h| Path::new(h).exists())
+            .or_else(|| detect::detect_after(before, &wanted).map(|p| p.to_string_lossy().into_owned()))
+            .or_else(|| launch_hint.clone())
+    };
     let mut entry = InstalledApp {
         version: req.version.clone(),
         kind: req.kind.clone(),
         launch: None,
         dir: None,
         installed_at: now(),
+        name: req.name.clone(),
     };
     let lower = file.to_string_lossy().to_lowercase();
 
@@ -339,18 +356,20 @@ fn install_file<Rt: Runtime>(app: &AppHandle<Rt>, req: &InstallRequest, file: &P
         // Installeur Windows (NSIS, Inno Setup…)
         "installer" if cfg!(windows) => {
             let args = split_args(req.install_args.as_deref().unwrap_or(""));
+            let before = detect::snapshot();
             run_windows_installer(file, &args)?;
-            entry.launch = launch_hint;
+            entry.launch = hint_or_detect(&before);
             let _ = fs::remove_file(file);
         }
         "msi" if cfg!(windows) => {
             let mut args = vec!["/i".to_string(), file.to_string_lossy().into_owned(), "/passive".into(), "/norestart".into()];
             args.extend(split_args(req.install_args.as_deref().unwrap_or("")));
+            let before = detect::snapshot();
             let st = Command::new("msiexec").args(&args).status().map_err(e2s)?;
             if !st.success() {
                 return Err(format!("L'installation MSI a échoué (code {})", st.code().unwrap_or(-1)));
             }
-            entry.launch = launch_hint;
+            entry.launch = hint_or_detect(&before);
             let _ = fs::remove_file(file);
         }
 
@@ -361,10 +380,24 @@ fn install_file<Rt: Runtime>(app: &AppHandle<Rt>, req: &InstallRequest, file: &P
             let _ = fs::remove_file(file);
         }
 
-        // Paquet d'installation macOS : l'assistant d'Apple s'ouvre (il demande en général le mot de passe admin).
-        // Pour que « Lancer » marche ensuite, indiquer dans le panel le chemin à lancer (ex. /Applications/RzParty.app).
+        // Paquet d'installation macOS : l'assistant d'Apple s'ouvre (mot de passe admin en général) ;
+        // on attend qu'il se ferme (open -W), puis on regarde quelle appli est apparue dans /Applications.
+        "pkg" if cfg!(target_os = "macos") => {
+            let before = detect::snapshot();
+            let st = Command::new("open").arg("-W").arg(file).status().map_err(e2s)?;
+            if !st.success() {
+                return Err("Impossible d'ouvrir l'installeur .pkg".into());
+            }
+            entry.launch = hint_or_detect(&before);
+            if entry.launch.is_none() {
+                return Err("Installation annulée ou appli introuvable dans Applications".into());
+            }
+            let _ = fs::remove_file(file);
+        }
+
         // Autres cas (.deb, .rpm, .jar, installeur d'une autre plateforme…) :
         // on ouvre le fichier avec le programme du système et on garde la trace de la version.
+        // (l'installation se fait à part : l'emplacement sera cherché au premier « Lancer »)
         _ => {
             open_with_system(file)?;
             entry.launch = launch_hint;
@@ -554,34 +587,65 @@ fn open_with_system(p: &Path) -> R<()> {
 }
 
 #[tauri::command]
-pub fn launch_app<Rt: Runtime>(app: AppHandle<Rt>, slug: String) -> R<()> {
+pub fn launch_app<Rt: Runtime>(app: AppHandle<Rt>, state: State<'_, AppsState>, slug: String) -> R<()> {
     check_slug(&slug)?;
-    let reg = load_registry(&app);
-    let entry = reg.get(&slug).ok_or("Cette appli n'est pas installée")?;
-    let target = entry
-        .launch
-        .as_deref()
-        .ok_or("Le catalogue n'indique pas quoi lancer pour cette appli : ajoute un « chemin de lancement » dans le panel")?;
-    let path = PathBuf::from(target);
-    if !path.exists() {
-        return Err("Programme introuvable : il a peut-être été désinstallé. Réinstalle-le depuis le launcher.".into());
-    }
+    let mut reg = load_registry(&app);
+    let entry = reg.get(&slug).cloned().ok_or("Cette appli n'est pas installée")?;
+    let known = entry.launch.as_deref().filter(|p| Path::new(p).exists()).map(PathBuf::from);
+    let target = match known {
+        Some(p) => p,
+        None => {
+            // Emplacement inconnu ou changé : on cherche l'appli par son nom, puis on le retient
+            let wanted = detect::wanted_names(entry.name.as_deref(), &slug);
+            let found = detect::search_by_name(&wanted).ok_or(
+                "Impossible de trouver où l'appli est installée. Lance-la une fois depuis ton système, \
+                 ou indique son chemin dans le panel (champ « À lancer »).",
+            )?;
+            let _guard = state.registry.lock().map_err(e2s)?;
+            reg = load_registry(&app);
+            if let Some(e) = reg.get_mut(&slug) {
+                e.launch = Some(found.to_string_lossy().into_owned());
+            }
+            save_registry(&app, &reg)?;
+            found
+        }
+    };
+    launch_target(&target)
+}
+
+/// Lance un exécutable, une appli macOS (.app), un raccourci Windows (.lnk) ou un raccourci Linux (.desktop)
+fn launch_target(path: &Path) -> R<()> {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
     let cwd = path.parent().map(Path::to_path_buf).unwrap_or_else(std::env::temp_dir);
 
-    #[cfg(target_os = "macos")]
-    let res = if target.ends_with(".app") {
-        Command::new("open").arg("-a").arg(&path).spawn()
-    } else {
-        Command::new(&path).current_dir(&cwd).spawn()
-    };
     #[cfg(windows)]
     let res = {
         use std::os::windows::process::CommandExt;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
-        Command::new(&path).current_dir(&cwd).creation_flags(DETACHED_PROCESS).spawn()
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        if ext == "lnk" {
+            Command::new("cmd").args(["/C", "start", ""]).arg(path).creation_flags(CREATE_NO_WINDOW).spawn()
+        } else {
+            Command::new(path).current_dir(&cwd).creation_flags(DETACHED_PROCESS).spawn()
+        }
+    };
+    #[cfg(target_os = "macos")]
+    let res = if ext == "app" {
+        Command::new("open").arg("-a").arg(path).spawn()
+    } else {
+        Command::new(path).current_dir(&cwd).spawn()
     };
     #[cfg(all(unix, not(target_os = "macos")))]
-    let res = Command::new(&path).current_dir(&cwd).spawn();
+    let res = if ext == "desktop" {
+        let id = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        Command::new("gio")
+            .arg("launch")
+            .arg(path)
+            .spawn()
+            .or_else(|_| Command::new("gtk-launch").arg(&id).spawn())
+    } else {
+        Command::new(path).current_dir(&cwd).spawn()
+    };
 
     res.map(|_| ()).map_err(|e| format!("Impossible de lancer l'appli : {e}"))
 }
@@ -637,6 +701,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn install_launch_remove() {
+        let _ = &detect::norm; // module utilisé
         use std::io::{Read, Write as _};
         use std::net::TcpListener;
 
@@ -680,7 +745,7 @@ mod tests {
         let sha = |b: &[u8]| hex::encode(Sha256::digest(b));
         let req = |slug: &str, kind: &str, file: &str, sum: Option<String>| InstallRequest {
             slug: slug.into(), version: "1.0.0".into(), url: format!("http://127.0.0.1:{port}{file}"),
-            sha256: sum, kind: kind.into(), install_args: None, launch_path: None,
+            sha256: sum, kind: kind.into(), install_args: None, launch_path: None, name: None,
         };
 
         // 1) Empreinte fausse → refus
@@ -692,14 +757,14 @@ mod tests {
         assert!(v.exists && v.removable);
         assert!(v.app.launch.as_deref().unwrap().ends_with("nl-test-zip/monappli"), "{:?}", v.app.launch);
         let _ = fs::remove_file(&out);
-        launch_app(h.clone(), "nl-test-zip".into()).unwrap();
+        launch_app(h.clone(), app.state(), "nl-test-zip".into()).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(500));
         assert_eq!(fs::read_to_string(&out).unwrap().trim(), "lance");
 
         // 3) AppImage
         let v = tauri::async_runtime::block_on(install_app(h.clone(), app.state(), req("nl-test-ai", "appimage", "/app.AppImage", Some(sha(&appimage))))).unwrap();
         assert!(v.app.launch.as_deref().unwrap().ends_with("nl-test-ai.AppImage"));
-        launch_app(h.clone(), "nl-test-ai".into()).unwrap();
+        launch_app(h.clone(), app.state(), "nl-test-ai".into()).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(500));
         assert_eq!(fs::read_to_string(&out).unwrap().trim(), "appimage");
 

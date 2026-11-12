@@ -1,6 +1,6 @@
 [package]
 name = "nounours-launcher"
-version = "0.2.1"
+version = "0.2.2"
 description = "NounoursLauncher — le launcher de l'écosystème NounoursCorp"
 authors = ["DidiKaria"]
 edition = "2021"
@@ -31,6 +31,10 @@ tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-window-state = "2"
+
+# Détection des applis installées (registre « Programmes et fonctionnalités »)
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

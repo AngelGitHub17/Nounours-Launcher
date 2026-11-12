@@ -55,6 +55,8 @@ Dans le panel (`nounourscorp.fr/launcher/admin/`) :
 | `pkg` | ouvre l'assistant d'installation de macOS (mot de passe admin en général) | chemin de l'appli installée, ex. `/Applications/RzParty.app` |
 | `deb`, `rpm`, `jar`… | ouvre le fichier avec le programme du système | facultatif |
 
+Le chemin *à lancer* est **facultatif** : après l'installation, le launcher regarde ce qui est apparu. Sous Windows, il compare « Programmes et fonctionnalités », puis les raccourcis du menu Démarrer. Sur Mac, il regarde le dossier Applications ; sous Linux, les raccourcis du menu. Au besoin, il cherche aussi l'appli par son nom. Ne le renseigne que si la détection se trompe.
+
 Il suffit de renseigner les *arguments* et le chemin *à lancer* une seule fois : les versions suivantes, même publiées par GitHub, les reprennent automatiquement.
 
 ### Applis publiées dans un dépôt GitHub privé

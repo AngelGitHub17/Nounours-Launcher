@@ -2389,7 +2389,7 @@ dependencies = [
 
 [[package]]
 name = "nounours-launcher"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "futures-util",
  "hex",
@@ -2405,6 +2405,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "winreg",
  "zip",
 ]
 

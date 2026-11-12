@@ -296,6 +296,7 @@ async function installProject(p, { quiet = false } = {}) {
     await invoke('install_app', { req: {
       slug: p.slug, version: rel.version, url: asset.url, sha256: asset.sha256 || null,
       kind: asset.kind, install_args: asset.install_args || null, launch_path: asset.launch_path || null,
+      name: p.name,
     } });
     delete state.progress[p.slug];
     await loadInstalled();

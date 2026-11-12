@@ -3,6 +3,7 @@
 //! et on expose quelques informations sur la machine.
 
 mod apps;
+mod detect;
 
 #[cfg(desktop)]
 use tauri::Manager;
