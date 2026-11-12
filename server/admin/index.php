@@ -149,6 +149,7 @@ pre{padding:10px;white-space:pre-wrap;user-select:all}
       <h3>Réglages</h3>
       <p><b>Adresse de l'API</b> (à mettre dans le launcher et dans la variable GitHub <code>NL_API_URL</code>) :<br><code id="apiUrl"></code></p>
       <p><b>Page de téléchargement du launcher</b> : <a id="pageUrl" target="_blank" rel="noopener" style="color:var(--accent2)"></a> — <span id="dlCount" class="muted"></span></p>
+      <p><b>Version des fichiers serveur</b> : <code id="srvVersion"></code></p>
       <p><b>Jeton GitHub du serveur</b> (dépôts privés) : <span id="ghToken" class="muted"></span></p>
       <p><b>Jeton CI</b> — permet à GitHub Actions de publier tes versions toutes seules. <span id="ciState" class="muted"></span></p>
       <p><button class="btn primary sm" id="ciNew">Générer un jeton CI</button> <button class="btn danger sm hidden" id="ciRevoke">Révoquer</button></p>
@@ -281,6 +282,7 @@ async function loadSettings() {
   try {
     const s = await api('admin/settings');
     $('#apiUrl').textContent = s.api_url;
+    $('#srvVersion').textContent = s.server_version || 'ancienne (fichiers à renvoyer)';
     $('#pageUrl').textContent = s.page_url; $('#pageUrl').href = s.page_url;
     $('#dlCount').textContent = `${s.downloads} téléchargement${s.downloads > 1 ? 's' : ''}`;
     $('#ciState').textContent = s.ci_token_set ? `(un jeton existe, créé le ${new Date(s.ci_token_at).toLocaleString('fr-FR')})` : '(aucun jeton pour l\'instant)';

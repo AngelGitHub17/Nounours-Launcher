@@ -66,6 +66,7 @@ function admin_settings(): never
         'page_url'     => rtrim((string)nl_config()['base_url'], '/') . '/',
         'downloads'    => (int)(nl_setting('dl:' . nl_config()['launcher_slug']) ?? 0),
         'github_token' => nl_gh_token() !== '',
+        'server_version' => NL_SERVER_VERSION,
     ]);
 }
 

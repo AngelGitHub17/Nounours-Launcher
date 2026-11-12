@@ -41,6 +41,8 @@ try {
             nl_json([
                 'name'        => 'NounoursLauncher API',
                 'api_version' => NL_API_VERSION,
+                'server_version' => NL_SERVER_VERSION,
+                'github_changelog' => function_exists('nl_gh_changelog'),
                 'platforms'   => NL_PLATFORMS,
                 'kinds'       => NL_KINDS,
                 'types'       => NL_TYPES,
