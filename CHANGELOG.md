@@ -2,6 +2,10 @@
 
 Pour publier une version : `npm run version:set X.Y.Z`, ajoute une section `## X.Y.Z` en haut de cette liste, puis commit et push sur `main`.
 
+## 0.3.3
+
+- macOS : l'application est désormais signée (signature locale) ; elle ne s'affiche plus comme « endommagée ». Au premier lancement, autoriser l'ouverture dans Réglages Système → Confidentialité et sécurité
+
 ## 0.3.2
 
 - Les nouvelles versions apparaissent sans redémarrer le launcher : catalogue vérifié toutes les minutes quand la fenêtre est affichée, et dès qu'on revient dessus

@@ -197,7 +197,9 @@ body{margin:0;font:16px/1.55 system-ui,"Segoe UI",sans-serif;background:#0d1626;
   <div class="card" style="margin-bottom:22px">
     <h2 style="margin-top:0"><i class="fas fa-circle-info" style="color:var(--acc,#ff9a1f)"></i> Première installation</h2>
     <div class="tip"><b>Windows :</b> si « Windows a protégé votre ordinateur » s'affiche, clique sur <i>Informations complémentaires</i> puis <i>Exécuter quand même</i>. C'est normal tant que le launcher n'a pas de certificat payant ; les mises à jour suivantes n'afficheront plus rien.</div>
-    <div class="tip"><b>macOS :</b> au premier lancement, fais un clic droit sur NounoursLauncher → <i>Ouvrir</i>, puis confirme.</div>
+    <div class="tip"><b>macOS :</b> le launcher n'est pas encore certifié par Apple. Au premier lancement, ouvre-le une fois, puis va dans
+      <i>Réglages Système → Confidentialité et sécurité</i> et clique sur <i>Ouvrir quand même</i>.
+      Si macOS dit qu'il est « endommagé », tape dans le Terminal&nbsp;: <code>xattr -cr /Applications/NounoursLauncher.app</code></div>
     <div class="tip"><b>Linux :</b> rends l'AppImage exécutable (<code>chmod +x</code>) ou installe le paquet .deb / .rpm.</div>
   </div>
 
