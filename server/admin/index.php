@@ -249,7 +249,7 @@ const PLATFORMS = {
   'windows-x86_64':'Windows x64','windows-aarch64':'Windows ARM','darwin-aarch64':'macOS Apple Silicon','darwin-x86_64':'macOS Intel',
   'linux-x86_64':'Linux x64','linux-aarch64':'Linux ARM','android':'Android','ios':'iOS','web':'Web','server':'Serveur (plugin)'
 };
-const KINDS = ['installer','updater','portable','msi','apk','dmg','appimage','deb','rpm','jar','zip','store','web'];
+const KINDS = ['installer','updater','portable','msi','apk','dmg','pkg','appimage','deb','rpm','jar','zip','store','web'];
 const TYPES = {site:'Sites',app:'Applications',plugin:'Plugins',service:'Services',bot:'Bots',tool:'Outils',launcher:'Launcher'};
 const STATUS = {online:'En ligne',beta:'Bêta',dev:'En dev',archived:'Archivé'};
 

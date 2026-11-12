@@ -250,7 +250,7 @@ function nl_download_kinds(string $platform): array
 {
     return match (explode('-', $platform)[0]) {
         'windows' => ['installer', 'msi', 'portable', 'zip'],
-        'darwin'  => ['dmg', 'zip', 'portable'],
+        'darwin'  => ['dmg', 'pkg', 'zip', 'portable'],
         'linux'   => ['appimage', 'deb', 'rpm', 'zip', 'portable'],
         'android' => ['apk', 'store'],
         'ios'     => ['store'],

@@ -168,6 +168,7 @@ function nl_gh_classify(string $name): ?array
         str_ends_with($n, '.exe')                            => [$arm ? 'windows-aarch64' : 'windows-x86_64', preg_match('/(setup|install)/', $n) ? 'installer' : 'portable'],
         str_ends_with($n, '.msi')                            => [$arm ? 'windows-aarch64' : 'windows-x86_64', 'msi'],
         str_ends_with($n, '.dmg')                            => [preg_match('/(x64|x86_64|intel)/', $n) ? 'darwin-x86_64' : 'darwin-aarch64', 'dmg'],
+        str_ends_with($n, '.pkg')                            => [preg_match('/(x64|x86_64|intel)/', $n) ? 'darwin-x86_64' : 'darwin-aarch64', 'pkg'],
         str_ends_with($n, '.appimage')                       => [$arm ? 'linux-aarch64' : 'linux-x86_64', 'appimage'],
         str_ends_with($n, '.deb')                            => [$arm ? 'linux-aarch64' : 'linux-x86_64', 'deb'],
         str_ends_with($n, '.rpm')                            => [$arm ? 'linux-aarch64' : 'linux-x86_64', 'rpm'],
@@ -207,9 +208,13 @@ function nl_gh_import(int $projectId, int $limit = 15): array
             $cls = nl_gh_classify((string)$ga['name']);
             if (!$cls) { continue; }
             $sha = (isset($ga['digest']) && str_starts_with((string)$ga['digest'], 'sha256:')) ? substr((string)$ga['digest'], 7) : null;
-            $assets[] = ['platform' => $cls[0], 'kind' => $cls[1], 'url' => (string)$ga['browser_download_url'],
-                         'size' => (int)($ga['size'] ?? 0) ?: null, 'sha256' => $sha, 'signature' => null,
-                         'install_args' => null, 'launch_path' => null];
+            // Paquet Mac « universal » : valable pour Apple Silicon et Intel
+            $platforms = ($cls[0] === 'darwin-aarch64' && preg_match('/universal/i', (string)$ga['name'])) ? ['darwin-aarch64', 'darwin-x86_64'] : [$cls[0]];
+            foreach ($platforms as $pf) {
+                $assets[] = ['platform' => $pf, 'kind' => $cls[1], 'url' => (string)$ga['browser_download_url'],
+                             'size' => (int)($ga['size'] ?? 0) ?: null, 'sha256' => $sha, 'signature' => null,
+                             'install_args' => null, 'launch_path' => null];
+            }
         }
         if (!$assets) { continue; }
 

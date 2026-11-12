@@ -52,6 +52,7 @@ Dans le panel (`nounourscorp.fr/launcher/admin/`) :
 | `zip` / `portable` | extrait l'archive dans le dossier du launcher et remplace l'ancienne version | chemin **dans le zip**, ex. `NounoursCineManager.exe` (si tu le laisses vide, le launcher cherche tout seul) |
 | `appimage` | copie le fichier et le rend exécutable | — |
 | `dmg` | copie le `.app` dans `~/Applications` | — |
+| `pkg` | ouvre l'assistant d'installation de macOS (mot de passe admin en général) | chemin de l'appli installée, ex. `/Applications/RzParty.app` |
 | `deb`, `rpm`, `jar`… | ouvre le fichier avec le programme du système | facultatif |
 
 Il suffit de renseigner les *arguments* et le chemin *à lancer* une seule fois : les versions suivantes, même publiées par GitHub, les reprennent automatiquement.
@@ -64,7 +65,7 @@ Le launcher peut distribuer les installeurs d'un dépôt **privé** sans donner 
 2. Colle-le dans `launcher/config.php`, à la ligne `'github_token' => '…'`. Il reste sur le serveur et n'est jamais envoyé aux utilisateurs.
 3. Dans le panel, renseigne le **Dépôt GitHub des versions** du projet (par exemple `AngelGitHub17/MonAppli`), puis clique sur **Importer les versions depuis GitHub**.
 
-L'import ne reprend que les installeurs (`.exe`, `.msi`, `.zip`, `.dmg`, `.AppImage`, `.deb`, `.rpm`, `.apk`, `.jar`). Il ignore le code source, les signatures et les autres fichiers. Les empreintes SHA-256 fournies par GitHub sont reprises automatiquement.
+L'import ne reprend que les installeurs (`.exe`, `.msi`, `.zip`, `.dmg`, `.pkg`, `.AppImage`, `.deb`, `.rpm`, `.apk`, `.jar`). Il ignore le code source, les signatures et les autres fichiers. Les empreintes SHA-256 fournies par GitHub sont reprises automatiquement.
 
 Pour un dépôt privé :
 - le catalogue donne aux utilisateurs un **lien relais** (`api.php?r=asset&id=…`) qui vérifie leurs droits, puis les redirige vers une adresse GitHub temporaire valable quelques minutes ;

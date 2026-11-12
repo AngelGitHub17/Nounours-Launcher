@@ -16,7 +16,7 @@ const NL_PLATFORMS = [
     'linux-x86_64',   'linux-aarch64',
     'android', 'ios', 'web', 'server',
 ];
-const NL_KINDS = ['installer','updater','portable','msi','apk','dmg','appimage','deb','rpm','jar','zip','store','web'];
+const NL_KINDS = ['installer','updater','portable','msi','apk','dmg','pkg','appimage','deb','rpm','jar','zip','store','web'];
 const NL_TYPES = ['site','app','plugin','service','bot','tool','launcher'];
 const NL_STATUSES = ['online','beta','dev','archived'];
 const NL_VISIBILITIES = ['public','members','private'];

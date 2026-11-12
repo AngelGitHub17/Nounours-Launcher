@@ -361,6 +361,8 @@ fn install_file<Rt: Runtime>(app: &AppHandle<Rt>, req: &InstallRequest, file: &P
             let _ = fs::remove_file(file);
         }
 
+        // Paquet d'installation macOS : l'assistant d'Apple s'ouvre (il demande en général le mot de passe admin).
+        // Pour que « Lancer » marche ensuite, indiquer dans le panel le chemin à lancer (ex. /Applications/RzParty.app).
         // Autres cas (.deb, .rpm, .jar, installeur d'une autre plateforme…) :
         // on ouvre le fichier avec le programme du système et on garde la trace de la version.
         _ => {

@@ -59,7 +59,7 @@ const state = {
 // Types de fichiers préférés pour installer, par système
 const PREFERRED_KINDS = {
   windows: ['installer', 'msi', 'portable', 'zip'],
-  darwin: ['dmg', 'zip', 'portable'],
+  darwin: ['dmg', 'pkg', 'zip', 'portable'],
   linux: ['appimage', 'zip', 'portable', 'deb', 'rpm'],
 };
 // Installables sans intervention (mise à jour automatique possible)

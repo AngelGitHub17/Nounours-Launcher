@@ -33,7 +33,7 @@ $targets = [
     'android'        => ['Android', 'fab fa-android', 'Téléphones et tablettes Android'],
     'ios'            => ['iPhone', 'fab fa-apple', 'iPhone et iPad'],
 ];
-$kindLabels = ['installer' => 'Installeur', 'msi' => 'MSI', 'dmg' => 'Image disque', 'appimage' => 'AppImage',
+$kindLabels = ['installer' => 'Installeur', 'msi' => 'MSI', 'dmg' => 'Image disque', 'pkg' => 'Installeur .pkg', 'appimage' => 'AppImage',
                'deb' => '.deb', 'rpm' => '.rpm', 'apk' => 'APK', 'zip' => 'Zip', 'portable' => 'Portable', 'store' => 'Store'];
 
 $downloads = [];

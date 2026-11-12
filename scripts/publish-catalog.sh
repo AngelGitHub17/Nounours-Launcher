@@ -27,6 +27,9 @@ for f in *; do
     *x64*.app.tar.gz|*x86_64*.app.tar.gz) add darwin-x86_64 updater "$f" "$sig" ;;
     *aarch64*.dmg|*arm64*.dmg)            add darwin-aarch64 dmg "$f" ;;
     *x64*.dmg|*x86_64*.dmg)               add darwin-x86_64 dmg "$f" ;;
+    *universal*.pkg)                      add darwin-aarch64 pkg "$f"; add darwin-x86_64 pkg "$f" ;;
+    *x64*.pkg|*x86_64*.pkg|*intel*.pkg)   add darwin-x86_64 pkg "$f" ;;
+    *.pkg)                                add darwin-aarch64 pkg "$f" ;;
     # Windows : l'installeur NSIS sert aussi de mise à jour
     *.exe)
       add windows-x86_64 installer "$f"
