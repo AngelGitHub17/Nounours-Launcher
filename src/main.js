@@ -124,10 +124,15 @@ function toast(msg, kind = '') {
 // ---------- Données ----------
 
 async function refreshCatalog({ silent = false } = {}) {
+  if (state.refreshing) return state.refreshing; // une seule actualisation à la fois
+  state.refreshing = (async () => {
   if (!silent) { state.loading = state.projects.length === 0; render(); }
+  const wasOffline = state.offline;
+  let changed = true;
   try {
     const r = await loadCatalog(state.platform, state.channel);
-    state.projects = r.projects.filter(p => p.type !== 'launcher');
+    changed = r.changed !== false || !state.projects.length;
+    if (changed) state.projects = r.projects.filter(p => p.type !== 'launcher');
     state.offline = r.offline;
     state.fetchedAt = r.fetchedAt;
     state.error = r.offline ? r.error : null;
@@ -136,10 +141,19 @@ async function refreshCatalog({ silent = false } = {}) {
     state.offline = true;
   }
   state.loading = false;
-  render();
+  if (changed || !silent || wasOffline !== state.offline) {
+    render();
+    // Fiche ouverte : on la met à jour aussi (nouvelle version, verrou levé…)
+    const slug = $('#sheet').dataset.slug;
+    if (changed && slug && !$('#detail').classList.contains('hidden')) openDetail(slug, true);
+  } else {
+    renderNet(); // rien de neuf : on ne redessine pas (saisies et défilement conservés)
+  }
   // Hors ligne : nouvel essai dans 30 s (au lieu d'attendre la prochaine actualisation)
   clearTimeout(state.retryTimer);
   if (state.offline) state.retryTimer = setTimeout(() => refreshCatalog({ silent: true }), 30 * 1000);
+  })();
+  try { await state.refreshing; } finally { state.refreshing = null; }
 }
 
 async function refreshStatus() {
@@ -712,8 +726,13 @@ setInterval(() => {
 
 async function loadAdmin() {
   if (!isAdmin()) return;
-  try { state.admin = { pending: (await adminCall('summary')).pending || [], loaded: true }; }
-  catch (e) { state.admin.loaded = true; if (e.status === 403) { state.user = { ...state.user, admin: false }; } }
+  const before = state.admin.loaded ? JSON.stringify(state.admin.pending) : null;
+  try { state.admin = { pending: (await adminCall('summary')).pending || [], loaded: true, error: null }; }
+  catch (e) {
+    state.admin = { ...state.admin, loaded: true, error: e.message };
+    if (e.status === 403) state.user = { ...state.user, admin: false };
+  }
+  if (before !== null && before === JSON.stringify(state.admin.pending) && !state.admin.error) return; // rien de neuf
   renderNav();
   if (state.view === 'admin') renderGrid();
 }
@@ -736,7 +755,8 @@ function adminHtml() {
     </div>
     <p class="muted small">Le panel s'ouvre dans une fenêtre du launcher, déjà connecté avec ton compte : projets, versions, fichiers, verrous et surveillance.</p>
     <h2 class="section">Versions en attente de sortie</h2>
-    ${!A.loaded ? '<div class="card skeleton" style="height:70px"></div>'
+    ${A.error ? `<div class="lockbox"><div class="lk-ic">⚠️</div><div><p>Impossible de joindre l'administration du serveur : ${esc(A.error)}</p><p class="muted small">Vérifie que les fichiers du serveur sont à jour (panel → « Version du serveur »).</p></div></div>` : ''}
+    ${!A.loaded ? '<div class="card skeleton" style="height:70px"></div>' : A.error ? ''
       : rows || '<div class="empty small-empty"><div class="big">✅</div><p>Aucune version en attente. Les nouvelles versions détectées sur GitHub ou dans les dossiers du serveur apparaîtront ici (et par mail).</p></div>'}
   </div>`;
 }
@@ -1161,7 +1181,17 @@ window.addEventListener('online', () => { refreshCatalog({ silent: true }); refr
   refreshStatus();
   refreshUser();
   setInterval(refreshUser, 10 * 60 * 1000); // solde de pièces + versions en attente (admin)
-  setInterval(async () => { await refreshCatalog({ silent: true }); if (state.autoApps) updateAll({ auto: true }); }, 5 * 60 * 1000);
+  // Catalogue : vérifié toutes les minutes quand la fenêtre est visible (réponse minuscule si rien n'a changé),
+  // toutes les 5 minutes sinon, et dès qu'on revient sur le launcher
+  setInterval(() => { if (document.visibilityState === 'visible' || Date.now() - state.fetchedAt > 5 * 60 * 1000) refreshCatalog({ silent: true }); }, 60 * 1000);
+  const comeBack = () => {
+    if (document.visibilityState !== 'visible') return;
+    if (Date.now() - state.fetchedAt > 15 * 1000) refreshCatalog({ silent: true });
+    if (isAdmin()) loadAdmin();
+  };
+  window.addEventListener('focus', comeBack);
+  document.addEventListener('visibilitychange', comeBack);
+  setInterval(() => { if (state.autoApps) updateAll({ auto: true }); }, 5 * 60 * 1000);
   setInterval(refreshStatus, 60 * 1000);
   setTimeout(() => checkUpdate(false, { startup: true }), 1500);
   if (state.autoApps) setTimeout(() => updateAll({ auto: true }), 8000);

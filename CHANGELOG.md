@@ -2,6 +2,12 @@
 
 Pour publier une version : `npm run version:set X.Y.Z`, ajoute une section `## X.Y.Z` en haut de cette liste, puis commit et push sur `main`.
 
+## 0.3.2
+
+- Les nouvelles versions apparaissent sans redémarrer le launcher : catalogue vérifié toutes les minutes quand la fenêtre est affichée, et dès qu'on revient dessus
+- Une fiche ouverte se met à jour toute seule ; rien n'est redessiné quand le catalogue n'a pas changé
+- Administration : message clair si le serveur n'est pas à jour, liste des versions en attente actualisée au retour sur le launcher
+
 ## 0.3.1
 
 - Fini les faux « Hors ligne » : le catalogue n'utilise plus les réponses « 304 » que l'hébergement privait de leurs en-têtes ; nouvel essai automatique au moindre raté, puis toutes les 30 secondes

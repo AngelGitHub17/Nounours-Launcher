@@ -69,11 +69,11 @@ export async function loadCatalog(platform, channel) {
     if (r.data.not_modified && cached) {
       cached.fetchedAt = Date.now();
       LS.set(key, cached);
-      return { projects: cached.projects, offline: false, fetchedAt: cached.fetchedAt };
+      return { projects: cached.projects, offline: false, fetchedAt: cached.fetchedAt, changed: false };
     }
     const entry = { etag: r.data.etag || r.etag, projects: r.data.projects || [], fetchedAt: Date.now() };
     LS.set(key, entry);
-    return { projects: entry.projects, offline: false, fetchedAt: entry.fetchedAt };
+    return { projects: entry.projects, offline: false, fetchedAt: entry.fetchedAt, changed: entry.etag !== cached?.etag || !entry.etag };
   } catch (e) {
     if (cached) return { projects: cached.projects, offline: true, fetchedAt: cached.fetchedAt, error: e.message };
     throw e;
