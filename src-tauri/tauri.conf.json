@@ -40,16 +40,23 @@
       "icons/icon.ico"
     ],
     "windows": {
-      "nsis": { "languages": ["French"], "installMode": "currentUser" }
+      "nsis": {
+        "languages": [
+          "French"
+        ],
+        "installMode": "currentUser"
+      }
     }
   },
   "plugins": {
     "updater": {
-      "pubkey": "REMPLACER_PAR_LA_CLE_PUBLIQUE",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ5RTc3ODQ0RjYxNThFNzcKUldSM2poWDJSSGpuU1pNVCs1VHAxNW5xN0piSGFydE9FNnhuOWhKMHZjM3FWSkoyUG5WMTN2NUEK",
       "endpoints": [
         "https://nounourscorp.fr/launcher/api.php?r=launcher/update&target={{target}}&arch={{arch}}&current={{current_version}}"
       ],
-      "windows": { "installMode": "passive" }
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

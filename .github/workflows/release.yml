@@ -4,8 +4,9 @@
 # Déclenchement : pousser un tag  →  git tag -a v0.2.0 -m "- Nouveauté 1" && git push --tags
 # (le message du tag devient les notes de version ; un tag v0.3.0-beta.1 part dans le canal bêta)
 #
-# Secrets du dépôt : TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD, NL_CI_TOKEN
-# Variable du dépôt : NL_API_URL = https://nounourscorp.fr/launcher/api.php
+# Secrets du dépôt : TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD (obligatoires)
+#                     NL_CI_TOKEN (pour inscrire la version dans le catalogue)
+# Variable facultative : NL_API_URL (par défaut https://nounourscorp.fr/launcher/api.php)
 
 name: Release NounoursLauncher
 
@@ -52,6 +53,16 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+
+      - name: Vérifier la clé de signature
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::Secret TAURI_SIGNING_PRIVATE_KEY manquant (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
 
       - run: npm ci
 
@@ -114,7 +125,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           NOTES: ${{ steps.notes.outputs.text }}
-          NL_API_URL: ${{ vars.NL_API_URL }}
+          NL_API_URL: ${{ vars.NL_API_URL || 'https://nounourscorp.fr/launcher/api.php' }}
           NL_CI_TOKEN: ${{ secrets.NL_CI_TOKEN }}
           NL_SLUG: nounours-launcher
-        run: ./scripts/publish-catalog.sh
+        run: |
+          if [ -z "$NL_CI_TOKEN" ]; then
+            echo "::warning::Secret NL_CI_TOKEN absent : la release GitHub est publiée, mais pas inscrite dans le catalogue (panel → ⚙ Réglages → Générer un jeton CI)."
+            exit 0
+          fi
+          ./scripts/publish-catalog.sh

@@ -72,17 +72,12 @@ Il suffit de renseigner les *arguments* et le chemin *à lancer* une seule fois 
 
 Sur Mac, il faut en plus Xcode (`xcode-select --install`). Sur la VM Linux, il faut les paquets `libwebkit2gtk-4.1-dev`, `librsvg2-dev` et `patchelf`.
 
-## Clé de signature des mises à jour (à faire une seule fois)
+## Clé de signature des mises à jour
 
-Le launcher refuse d'installer une mise à jour qui n'est pas signée par toi. Cela empêche quelqu'un d'envoyer un faux programme à tes utilisateurs.
+Le launcher refuse d'installer une mise à jour qui n'est pas signée avec la clé de NounoursCorp. Cela empêche quelqu'un d'envoyer un faux programme aux utilisateurs.
 
-```
-npm run tauri signer generate -- -w %USERPROFILE%\.tauri\nounours-launcher.key
-```
-
-1. Choisis un mot de passe et note-le.
-2. Ouvre le fichier `.key.pub` qui vient d'être créé et copie son contenu dans `src-tauri/tauri.conf.json`, à la place de `REMPLACER_PAR_LA_CLE_PUBLIQUE`.
-3. **Ne perds jamais la clé privée** (le fichier `.key`) : sans elle, les launchers déjà installés ne pourront plus se mettre à jour. Garde-en une copie en lieu sûr, et ne la mets jamais dans le dépôt Git.
+- La **clé publique** est déjà dans `src-tauri/tauri.conf.json`.
+- La **clé privée** et son **mot de passe** sont à la fois dans les secrets GitHub et dans ta copie de sauvegarde. **Ne les perds jamais** : sans eux, les launchers déjà installés ne pourront plus se mettre à jour. Ne les mets jamais dans le dépôt Git.
 
 ## Publier une version (automatique, via GitHub)
 
@@ -93,7 +88,7 @@ npm run tauri signer generate -- -w %USERPROFILE%\.tauri\nounours-launcher.key
 | Secret | `TAURI_SIGNING_PRIVATE_KEY` | le contenu du fichier `.key` |
 | Secret | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | son mot de passe |
 | Secret | `NL_CI_TOKEN` | le jeton généré dans le panel (⚙ Réglages → Générer un jeton CI) |
-| Variable | `NL_API_URL` | `https://nounourscorp.fr/launcher/api.php` |
+| Variable (facultative) | `NL_API_URL` | `https://nounourscorp.fr/launcher/api.php` par défaut |
 
 **À chaque version :**
 
