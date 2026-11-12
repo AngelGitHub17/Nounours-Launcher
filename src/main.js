@@ -30,6 +30,7 @@ const DEFAULT_PREFS = {
   showDev: true,
   showArchived: false,
   groupByType: true,
+  launcherUpdates: 'auto', // auto | ask
 };
 const ACCENTS = [
   ['#ff9a1f', 'Orange NounoursCorp'], ['#3d9bff', 'Bleu'], ['#9b6bff', 'Violet'], ['#2fc788', 'Vert'],
@@ -504,52 +505,132 @@ function hideOverlays() {
 }
 
 // ---------- Mise à jour du launcher ----------
+// Mode « automatique » (par défaut) : le launcher vérifie au démarrage, toutes les 30 minutes et
+// quand on revient sur sa fenêtre. Une mise à jour trouvée au démarrage s'installe tout de suite ;
+// trouvée en cours d'utilisation, elle se télécharge en silence puis redémarre après un compte à
+// rebours (annulable : elle s'installera alors au prochain démarrage).
 
-async function checkUpdate(manual = false) {
+const UPD = { lastCheck: 0, checking: false, downloaded: false, countdown: null, retry: null };
+
+async function checkUpdate(manual = false, { startup = false } = {}) {
   const msg = t => { if (manual) $('#updateMsg').textContent = t; };
   if (!isTauri) { msg("Les mises à jour ne fonctionnent que dans l'application installée."); return; }
+  if (UPD.checking || state.update?.busy) return;
+  UPD.checking = true;
   msg('Recherche…');
   try {
     const { check } = await import('@tauri-apps/plugin-updater');
     const u = await check({ timeout: 20000, headers: { 'X-NL-Channel': state.channel } });
+    UPD.lastCheck = Date.now();
+    clearTimeout(UPD.retry);
+    renderUpdateInfo();
     if (!u) { msg(`Tu as déjà la dernière version (${state.appVersion}).`); return; }
+    if (state.update && state.update.version === u.version) { msg(`Version ${u.version} prête.`); return; }
     state.update = u;
     msg(`Version ${u.version} disponible.`);
-    renderUpdateBar();
+    if (prefs.launcherUpdates === 'auto' && !manual) {
+      if (startup) installUpdate();          // au démarrage : on installe tout de suite
+      else autoDownloadThenRestart();        // en cours d'utilisation : en arrière-plan
+    } else {
+      renderUpdateBar();
+    }
   } catch (e) {
     msg('Impossible de vérifier : ' + (e?.message || e));
     console.warn('updater', e);
+    clearTimeout(UPD.retry);
+    UPD.retry = setTimeout(() => checkUpdate(false), 5 * 60 * 1000); // hors ligne : on réessaie dans 5 min
+  } finally {
+    UPD.checking = false;
   }
 }
 
-function renderUpdateBar(progress = null) {
+function renderUpdateInfo() {
+  const el = $('#updateLast');
+  if (el) el.textContent = UPD.lastCheck ? `Dernière vérification : ${timeFr(UPD.lastCheck)}` : '';
+}
+
+function renderUpdateBar(mode = 'ask', value = 0) {
   const u = state.update;
   const bar = $('#updateBar');
   if (!u) { bar.classList.add('hidden'); return; }
   bar.classList.remove('hidden');
-  bar.innerHTML = progress === null
-    ? `<span>✨ <b>NounoursLauncher ${esc(u.version)}</b> est disponible.</span>
+  if (mode === 'progress') {
+    bar.innerHTML = `<span>⬇ Mise à jour vers <b>${esc(u.version)}</b>… ${value}%</span><div class="progress"><i style="width:${value}%"></i></div>`;
+  } else if (mode === 'installing') {
+    bar.innerHTML = `<span>⚙ Installation de NounoursLauncher <b>${esc(u.version)}</b>… le launcher va redémarrer.</span>`;
+  } else if (mode === 'countdown') {
+    bar.innerHTML = `<span>✨ <b>NounoursLauncher ${esc(u.version)}</b> est prêt : redémarrage dans <b>${value}</b> s.</span>
+       <button class="btn sm primary" id="doUpdate">Redémarrer maintenant</button>
+       <button class="btn sm ghost" id="laterUpdate">Plus tard</button>`;
+  } else {
+    bar.innerHTML = `<span>✨ <b>NounoursLauncher ${esc(u.version)}</b> est disponible.</span>
        <button class="btn sm primary" id="doUpdate">Installer et redémarrer</button>
-       <button class="iconbtn sm" id="laterUpdate" title="Plus tard">✕</button>`
-    : `<span>Téléchargement de la mise à jour… ${progress}%</span><div class="progress"><i style="width:${progress}%"></i></div>`;
+       <button class="iconbtn sm" id="laterUpdate" title="Plus tard">✕</button>`;
+  }
 }
 
+async function downloadUpdate() {
+  const u = state.update;
+  if (UPD.downloaded) return;
+  let total = 0, done = 0;
+  await u.download(ev => {
+    if (ev.event === 'Started') total = ev.data.contentLength || 0;
+    if (ev.event === 'Progress') { done += ev.data.chunkLength; if (total) renderUpdateBar('progress', Math.min(100, Math.round(done * 100 / total))); }
+  });
+  UPD.downloaded = true;
+}
+
+/** Télécharge puis installe et redémarre */
 async function installUpdate() {
   const u = state.update;
-  if (!u) return;
-  let total = 0, done = 0;
-  renderUpdateBar(0);
+  if (!u || u.busy) return;
+  u.busy = true;
+  clearInterval(UPD.countdown);
   try {
-    await u.downloadAndInstall(ev => {
-      if (ev.event === 'Started') total = ev.data.contentLength || 0;
-      if (ev.event === 'Progress') { done += ev.data.chunkLength; if (total) renderUpdateBar(Math.min(100, Math.round(done * 100 / total))); }
-    });
+    renderUpdateBar('progress', 0);
+    await downloadUpdate();
+    // Attendre la fin des installations d'applis en cours
+    while (Object.keys(state.progress).length) await new Promise(r => setTimeout(r, 1000));
+    renderUpdateBar('installing');
+    await u.install();                      // Windows : l'installeur ferme puis relance le launcher
     const { relaunch } = await import('@tauri-apps/plugin-process');
-    await relaunch();
+    await relaunch();                       // macOS / Linux
   } catch (e) {
+    u.busy = false;
     toast('Échec de la mise à jour : ' + (e?.message || e), 'err');
     renderUpdateBar();
   }
+}
+
+/** En cours d'utilisation : téléchargement silencieux, puis compte à rebours avant redémarrage */
+async function autoDownloadThenRestart() {
+  const u = state.update;
+  try {
+    u.busy = true;
+    await downloadUpdate();
+    u.busy = false;
+  } catch (e) {
+    u.busy = false;
+    console.warn('updater download', e);
+    renderUpdateBar();
+    return;
+  }
+  let left = 15;
+  renderUpdateBar('countdown', left);
+  clearInterval(UPD.countdown);
+  UPD.countdown = setInterval(() => {
+    // Pas de redémarrage pendant une installation d'appli : on attend
+    if (Object.keys(state.progress).length) return;
+    left -= 1;
+    if (left <= 0) { clearInterval(UPD.countdown); installUpdate(); }
+    else renderUpdateBar('countdown', left);
+  }, 1000);
+}
+
+function postponeUpdate() {
+  clearInterval(UPD.countdown);
+  $('#updateBar').classList.add('hidden');
+  if (state.update) toast(`La version ${state.update.version} s'installera au prochain démarrage`);
 }
 
 // ---------- Réglages ----------
@@ -600,6 +681,7 @@ function renderSettings() {
   $('#accentSwatches').innerHTML = ACCENTS.map(([c, name]) =>
     `<button class="swatch ${c === prefs.accent ? 'on' : ''}" data-accent="${c}" title="${esc(name)}" style="background:${c}"></button>`).join('');
   renderAutostart();
+  renderUpdateInfo();
   document.querySelectorAll('#channelSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === state.channel));
   $('#versionInfo').textContent = `Version installée : ${state.appVersion} · ${PLATFORM_NAMES[state.platform] || state.platform}`;
   $('#apiUrl').value = apiUrl();
@@ -655,7 +737,7 @@ document.addEventListener('click', async e => {
 
   if (t.id === 'doUpdate') { installUpdate(); return; }
   if (t.id === 'updateAll') { updateAll(); return; }
-  if (t.id === 'laterUpdate') { $('#updateBar').classList.add('hidden'); return; }
+  if (t.id === 'laterUpdate') { postponeUpdate(); return; }
 });
 
 document.addEventListener('keydown', e => {
@@ -744,7 +826,9 @@ applyPrefs();
   refreshStatus();
   setInterval(async () => { await refreshCatalog({ silent: true }); if (state.autoApps) updateAll({ auto: true }); }, 5 * 60 * 1000);
   setInterval(refreshStatus, 60 * 1000);
-  setTimeout(() => checkUpdate(false), 4000);
+  setTimeout(() => checkUpdate(false, { startup: true }), 1500);
   if (state.autoApps) setTimeout(() => updateAll({ auto: true }), 8000);
-  setInterval(() => checkUpdate(false), 6 * 60 * 60 * 1000);
+  setInterval(() => checkUpdate(false), 30 * 60 * 1000);
+  // Retour sur la fenêtre après un moment : on revérifie
+  window.addEventListener('focus', () => { if (Date.now() - UPD.lastCheck > 10 * 60 * 1000) checkUpdate(false); });
 })();

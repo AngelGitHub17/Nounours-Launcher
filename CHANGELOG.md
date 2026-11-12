@@ -2,6 +2,15 @@
 
 Pour publier une version : `npm run version:set X.Y.Z`, ajoute une section `## X.Y.Z` en haut de cette liste, puis commit et push sur `main`.
 
+## 0.2.3
+
+- Le launcher se met à jour tout seul :
+  - au démarrage, une nouvelle version est installée tout de suite et le launcher redémarre
+  - pendant l'utilisation, il vérifie toutes les 30 minutes (et quand on revient sur sa fenêtre), télécharge en arrière-plan puis redémarre après 15 secondes
+  - « Plus tard » reporte l'installation au prochain démarrage ; jamais de redémarrage pendant l'installation d'une appli
+- Réglages → Mise à jour du launcher : « Automatique » ou « Me demander », avec l'heure de la dernière vérification
+- Hors ligne : nouvel essai automatique 5 minutes plus tard
+
 ## 0.2.2
 
 - Le launcher trouve tout seul où une appli s'est installée, pour pouvoir la lancer :

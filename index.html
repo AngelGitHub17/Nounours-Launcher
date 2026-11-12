@@ -127,7 +127,12 @@
         </div>
         <div class="field">
           <label>Mise à jour du launcher</label>
+          <div class="seg" data-pref="launcherUpdates">
+            <button data-v="auto">Automatique</button><button data-v="ask">Me demander</button>
+          </div>
+          <p class="hint">Automatique : le launcher se met à jour tout seul (au démarrage, ou après un compte à rebours de 15 s que tu peux reporter).</p>
           <p class="hint" id="versionInfo"></p>
+          <p class="hint" id="updateLast"></p>
           <button class="btn" id="checkUpdate">Rechercher une mise à jour</button>
           <p class="hint" id="updateMsg"></p>
         </div>
