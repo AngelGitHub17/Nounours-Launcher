@@ -2,6 +2,14 @@
 
 Pour publier une version : `npm run version:set X.Y.Z`, ajoute une section `## X.Y.Z` en haut de cette liste, puis commit et push sur `main`.
 
+## 0.3.0
+
+- Première version Android : l'APK est disponible sur la page de téléchargement
+- Interface pour téléphone : barre d'onglets en bas, cartes sur deux colonnes, fiches en plein écran, encoche et barre gestuelle respectées
+- Sur Android, « Installer » télécharge l'APK de l'appli ; le launcher signale ses propres mises à jour
+- Le launcher compile aussi pour iPhone (installation depuis un Mac avec Xcode)
+- Thème clair : descriptions mieux contrastées
+
 ## 0.2.3
 
 - Le launcher se met à jour tout seul :

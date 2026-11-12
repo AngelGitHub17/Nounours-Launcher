@@ -131,6 +131,30 @@ Ensuite, GitHub fait tout le reste :
 
 Les launchers installés proposent la mise à jour dans les 6 heures. Une version comme `0.3.0-beta.1` part dans le canal bêta. Pousser directement un tag `vX.Y.Z` marche aussi.
 
+## Android
+
+À chaque version, GitHub construit l'APK (`NounoursLauncher_X.Y.Z_android.apk`), l'ajoute à la release et l'inscrit dans le catalogue. Il apparaît alors sur la page de téléchargement, dans la carte Android.
+
+- **Signature** : deux secrets GitHub, `ANDROID_KEYSTORE` (le fichier `.jks` en base64) et `ANDROID_KEYSTORE_PASSWORD`. **Garde la clé** : Android refuse une mise à jour signée avec une autre clé, il faudrait alors désinstaller puis réinstaller l'appli.
+- **Installation sur le téléphone** : ouvre la page de téléchargement depuis le téléphone, puis autorise « Installer des applis inconnues » pour le navigateur quand Android le demande.
+- **Mises à jour** : le launcher compare sa version avec l'APK du catalogue et propose le téléchargement.
+- **Sur mobile, le launcher sert de hub** : sites, fiches, notes de version, état des services. Le bouton « Installer » d'une appli Android télécharge son APK.
+
+À chaque modification, l'onglet **Actions → Mobile NounoursLauncher** construit aussi un APK de test (dans *Artifacts*).
+
+## iPhone / iPad
+
+Apple n'autorise pas la diffusion d'une appli iOS en dehors de l'App Store ou de TestFlight, et les deux demandent le programme Apple Developer (99 $/an). GitHub vérifie seulement que le launcher compile pour iPhone. Pour l'installer sur **ton** iPhone, depuis ton Mac :
+
+1. Installe Xcode depuis l'App Store et ouvre-le une fois pour accepter la licence.
+2. Ajoute les cibles iPhone à Rust : `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.
+3. Dans le dossier du projet : `npm install`, puis `npm run tauri ios init`.
+4. Branche ton iPhone et lance `npm run tauri ios dev -- --open`. Xcode s'ouvre.
+5. Dans Xcode, va dans *Signing & Capabilities* et choisis ton équipe (ton identifiant Apple suffit), puis clique sur ▶.
+6. Sur l'iPhone, va dans *Réglages → Général → VPN et gestion de l'appareil* et fais confiance au développeur.
+
+Avec un identifiant Apple gratuit, l'appli doit être réinstallée tous les 7 jours. Avec un compte Apple Developer, elle peut passer par TestFlight, et la publication automatique pourra être ajoutée ici.
+
 ## Compiler à la main
 
 ```
