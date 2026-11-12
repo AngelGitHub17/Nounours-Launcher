@@ -2,6 +2,7 @@
 # Envoie les fichiers d'une release GitHub dans le catalogue NounoursLauncher.
 # Variables attendues : GH_TOKEN, GITHUB_REPOSITORY, TAG, NL_API_URL, NL_CI_TOKEN, NL_SLUG
 # Facultatif : NOTES (notes de version), CHANNEL (stable|beta, sinon déduit du tag)
+# Relancer à la main : onglet Actions → « Catalogue NounoursLauncher » → Run workflow
 set -euo pipefail
 
 work=$(mktemp -d)
