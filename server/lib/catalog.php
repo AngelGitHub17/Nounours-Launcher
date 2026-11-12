@@ -226,3 +226,42 @@ function nl_fmt_project(array $p, string $channel, ?string $platform, bool $with
     }
     return $out;
 }
+
+// ---------- Téléchargements directs (page publique + ?r=download) ----------
+
+/** Plateforme devinée à partir du navigateur (le Mac est supposé Apple Silicon) */
+function nl_platform_from_ua(string $ua): ?string
+{
+    return match (true) {
+        (bool)preg_match('/Android/i', $ua)               => 'android',
+        (bool)preg_match('/iPhone|iPad|iPod/i', $ua)      => 'ios',
+        (bool)preg_match('/Windows NT.*(ARM64|aarch64)/i', $ua) => 'windows-aarch64',
+        (bool)preg_match('/Windows/i', $ua)               => 'windows-x86_64',
+        (bool)preg_match('/Macintosh|Mac OS X/i', $ua)    => 'darwin-aarch64',
+        (bool)preg_match('/Linux|X11|CrOS/i', $ua)        => 'linux-x86_64',
+        default                                           => null,
+    };
+}
+
+/** Types de fichiers à proposer en téléchargement direct, du plus adapté au moins adapté */
+function nl_download_kinds(string $platform): array
+{
+    return match (explode('-', $platform)[0]) {
+        'windows' => ['installer', 'msi', 'portable', 'zip'],
+        'darwin'  => ['dmg', 'zip', 'portable'],
+        'linux'   => ['appimage', 'deb', 'rpm', 'zip', 'portable'],
+        'android' => ['apk', 'store'],
+        'ios'     => ['store'],
+        default   => ['zip', 'jar', 'portable', 'installer'],
+    };
+}
+
+/** Meilleur fichier téléchargeable pour une plateforme : ['release' => …, 'asset' => …] ou null */
+function nl_best_download(array $project, string $platform, string $channel, ?string $kind = null): ?array
+{
+    foreach ($kind !== null ? [$kind] : nl_download_kinds($platform) as $k) {
+        $l = nl_latest_for($project, $platform, $channel, $k);
+        if ($l) { return $l; }
+    }
+    return null;
+}

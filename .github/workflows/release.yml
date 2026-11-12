@@ -90,7 +90,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES: ${{ steps.notes.outputs.text }}
-        run: gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft=false --notes "${NOTES:-Nouvelle version}"
+        run: |
+          {
+            echo "${NOTES:-Nouvelle version}"
+            echo
+            echo "---"
+            echo "### ⬇️ Télécharger"
+            echo "Le plus simple : **https://nounourscorp.fr/launcher/** (choisit le bon fichier pour ton système)."
+            echo
+            echo "| Système | Fichier |"
+            echo "|---|---|"
+            echo "| Windows 10 / 11 | \`…_x64-setup.exe\` (ou \`.msi\`) |"
+            echo "| macOS Apple Silicon | \`…_aarch64.dmg\` |"
+            echo "| macOS Intel | \`…_x64.dmg\` |"
+            echo "| Linux | \`….AppImage\`, \`.deb\` ou \`.rpm\` |"
+            echo
+            echo "_Les fichiers \`.sig\`, \`.app.tar.gz\` et \`latest.json\` servent à la mise à jour automatique : inutile de les télécharger._"
+          } > notes.md
+          gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft=false --latest=${{ !contains(github.ref_name, '-') }} --notes-file notes.md
 
       - name: Inscrire dans le catalogue NounoursLauncher
         env:

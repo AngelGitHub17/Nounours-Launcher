@@ -11,6 +11,7 @@
  *   ?r=launcher/update&target={{target}}&arch={{arch}}&current={{current_version}}[&channel=...]  (format Tauri)
  *   ?r=status
  *   ?r=meta
+ *   ?r=download[&slug=xxx][&platform=auto|windows-x86_64|…][&kind=…][&channel=…]  → redirige vers le bon installeur
  * Admin (POST, Authorization: Bearer <jeton>) :
  *   ?r=admin/projects, admin/project/save, admin/project/delete,
  *   admin/release/save, admin/release/delete, admin/asset/save, admin/asset/delete, admin/upload
@@ -57,6 +58,9 @@ try {
 
         case 'launcher/update':
             route_launcher_update();
+
+        case 'download':
+            route_download();
 
         case 'status':
             require __DIR__ . '/lib/status.php';
@@ -191,4 +195,39 @@ function route_launcher_update(): never
         'url'       => $l['asset']['url'],
         'signature' => $l['asset']['signature'],
     ]);
+}
+
+/**
+ * Lien de téléchargement stable, à mettre sur les sites et dans le README :
+ *   https://nounourscorp.fr/launcher/api.php?r=download  → le launcher pour le système du visiteur
+ * Sans fichier pour ce système : renvoie vers la page de téléchargement (ou la release GitHub).
+ */
+function route_download(): never
+{
+    $cfg = nl_config();
+    $slug = (string)($_GET['slug'] ?? $cfg['launcher_slug']);
+    $platform = (string)($_GET['platform'] ?? 'auto');
+    if ($platform === 'auto' || $platform === '') {
+        $platform = nl_platform_from_ua((string)($_SERVER['HTTP_USER_AGENT'] ?? '')) ?? '';
+    }
+    $kind = isset($_GET['kind']) && in_array($_GET['kind'], NL_KINDS, true) ? $_GET['kind'] : null;
+
+    $projects = nl_load(nl_viewer_level(), $slug);
+    $best = ($projects && in_array($platform, NL_PLATFORMS, true))
+        ? nl_best_download(reset($projects), $platform, q_channel(), $kind)
+        : null;
+
+    while (ob_get_level() > 0) { ob_end_clean(); }
+    header('Cache-Control: no-store');
+    if (!$best) {
+        $fallback = $cfg['download_fallback'] ?? (rtrim((string)$cfg['base_url'], '/') . '/');
+        header('Location: ' . $fallback . (str_contains($fallback, '?') ? '&' : '?') . 'indisponible=' . rawurlencode($platform ?: 'inconnu'), true, 302);
+        exit;
+    }
+    try {
+        nl_db()->prepare("INSERT INTO nl_settings (k, v) VALUES (?, '1') ON DUPLICATE KEY UPDATE v = CAST(v AS UNSIGNED) + 1")
+               ->execute(['dl:' . $slug]);
+    } catch (Throwable) { /* le compteur ne doit jamais bloquer un téléchargement */ }
+    header('Location: ' . $best['asset']['url'], true, 302);
+    exit;
 }

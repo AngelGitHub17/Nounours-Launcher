@@ -37,6 +37,8 @@ function admin_settings(): never
         'ci_token_set' => nl_setting('ci_token_hash') !== null,
         'ci_token_at'  => nl_setting('ci_token_at'),
         'api_url'      => rtrim((string)nl_config()['base_url'], '/') . '/api.php',
+        'page_url'     => rtrim((string)nl_config()['base_url'], '/') . '/',
+        'downloads'    => (int)(nl_setting('dl:' . nl_config()['launcher_slug']) ?? 0),
     ]);
 }
 

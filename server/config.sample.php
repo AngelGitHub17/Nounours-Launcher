@@ -23,6 +23,9 @@ return [
     // Slug du projet qui représente le launcher lui-même (pour l'auto-update Tauri)
     'launcher_slug' => 'nounours-launcher',
 
+    // Dépôt GitHub du launcher (lien « Toutes les versions » de la page de téléchargement)
+    'github_url' => 'https://github.com/AngelGitHub17/Nounours-Launcher',
+
     // Facultatif : empreintes SHA-256 de jetons de secours (le panel se fait avec NounoursAccount,
     // et le jeton CI se génère dans le panel → ⚙ Réglages). Laisser vide en temps normal.
     'admin_token_hashes' => [],

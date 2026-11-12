@@ -4,6 +4,18 @@ Le launcher de tout l'écosystème NounoursCorp. Il se construit tout seul à pa
 
 Développé avec **Tauri 2** : une interface en HTML, CSS et JavaScript (dossier `src/`) et un petit cœur en Rust (dossier `src-tauri/`). Un seul code sert pour Windows, macOS et Linux, puis plus tard pour Android et iOS.
 
+## Télécharger
+
+| | |
+|---|---|
+| 🌐 **Page officielle** | **https://nounourscorp.fr/launcher/** (détecte ton système) |
+| ⬇️ **Lien direct** | https://nounourscorp.fr/launcher/api.php?r=download — donne le bon installeur pour l'appareil qui l'ouvre |
+| 🐙 **GitHub** | [Dernière version](../../releases/latest) · [Toutes les versions](../../releases) |
+
+Fichiers par système : **Windows** `…_x64-setup.exe` (ou `.msi`) · **macOS** `…_aarch64.dmg` (Apple Silicon) / `…_x64.dmg` (Intel) · **Linux** `….AppImage`, `.deb`, `.rpm`.
+
+> Première installation : sous Windows, *Informations complémentaires → Exécuter quand même* ; sous macOS, clic droit → *Ouvrir*. Ensuite le launcher se met à jour tout seul.
+
 ## Ce que fait le launcher
 
 - **Catalogue**
@@ -119,7 +131,7 @@ Les installeurs sont créés dans `src-tauri/target/release/bundle/`.
 ## Organisation
 
 ```
-server/              API du catalogue + panel admin (déployé dans www4/launcher/ sur OVH)
+server/              API du catalogue, panel admin et page de téléchargement (www4/launcher/ sur OVH)
 src/                 interface (main.js, api.js, styles.css, md.js)
 public/              logo
 src-tauri/           cœur Rust, configuration, icônes, droits (capabilities/)
