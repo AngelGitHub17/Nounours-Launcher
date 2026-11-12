@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -75,10 +75,11 @@ jobs:
       - name: Construire l'APK
         run: |
           export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          set -o pipefail
           if [ "${{ steps.sign.outputs.signed }}" = "true" ]; then
-            npx tauri android build --apk --target aarch64 armv7 x86_64 --ci
+            npx tauri android build --apk --target aarch64 armv7 x86_64 --ci 2>&1 | tee "$RUNNER_TEMP/android.log"
           else
-            npx tauri android build --apk --debug --target aarch64 x86_64 --ci
+            npx tauri android build --apk --debug --target aarch64 x86_64 --ci 2>&1 | tee "$RUNNER_TEMP/android.log"
           fi
           version=$(jq -r .version src-tauri/tauri.conf.json)
           apk=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -1)
@@ -86,6 +87,15 @@ jobs:
           mkdir -p out
           cp "$apk" "out/NounoursLauncher_${version}_android.apk"
           ls -la out
+
+      - name: Résumé de l'erreur (visible dans l'onglet Checks)
+        if: failure()
+        run: |
+          [ -f "$RUNNER_TEMP/android.log" ] || exit 0
+          grep -nE "error|Error|FAILED|What went wrong|Caused by|failed" "$RUNNER_TEMP/android.log" | grep -v "warning" | tail -40 > "$RUNNER_TEMP/err.txt" || true
+          tail -25 "$RUNNER_TEMP/android.log" >> "$RUNNER_TEMP/err.txt"
+          msg=$(sed 's/%/%25/g' "$RUNNER_TEMP/err.txt" | cut -c1-300 | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Build Android::${msg}"
 
       - uses: actions/upload-artifact@v4
         with:
