@@ -9,7 +9,7 @@ date_default_timezone_set('UTC'); // dates manipulées et stockées en UTC (le l
 
 const NL_API_VERSION = 1;
 /** Version des fichiers serveur : permet de vérifier que tout a bien été envoyé sur OVH (?r=meta) */
-const NL_SERVER_VERSION = '2026.11.12-v5-admin';
+const NL_SERVER_VERSION = '2026.11.12-v6-pandorpacks';
 
 /** Plateformes reconnues par le catalogue */
 const NL_PLATFORMS = [

@@ -159,11 +159,13 @@ function admin_project_save(): never
         'sort_order'       => (int)($in['sort_order'] ?? 100),
         'watch_mode'       => nl_enum($in, 'watch_mode', ['off','ask','publish'], 'off'),
         'files_dir'        => nl_files_dir_input($in),
-        'files_url'        => nl_url($in, 'files_url'),
+        // Adresse web collée dans « Dossier du serveur » : on la prend comme adresse publique
+        'files_url'        => nl_url($in, 'files_url') ?? (preg_match('#^https://#i', (string)($in['files_dir'] ?? '')) ? rtrim(trim((string)$in['files_dir']), '/') : null),
         'default_lock_login' => nl_bool($in, 'default_lock_login'),
         'default_lock_coins' => max(0, min(1_000_000, (int)($in['default_lock_coins'] ?? 0))),
     ];
-    if ($data['files_dir'] !== null && $data['files_url'] === null) { nl_fail("Indique aussi l'adresse publique du dossier (files_url)"); }
+    if ($data['files_dir'] !== null && $data['files_url'] === null) { nl_fail("Indique aussi l'adresse publique du dossier (ex. https://nsdkplus.fr/PandorPacks)"); }
+
 
     $db = nl_db();
     $cols = array_keys($data);
@@ -181,7 +183,15 @@ function admin_project_save(): never
         if ($e->getCode() === '23000') { nl_fail("Le slug « $slug » existe déjà", 409); }
         throw $e;
     }
-    nl_json(['ok' => true, 'id' => $id, 'slug' => $slug]);
+    // Dossier de fichiers renseigné sur un projet sans version : premier import tout de suite
+    $imported = null;
+    if (($data['files_dir'] !== null || $data['files_url'] !== null) && !nl_known_versions($id)) {
+        $st = $db->prepare('SELECT * FROM nl_projects WHERE id = ?');
+        $st->execute([$id]);
+        try { $r = nl_folder_import($st->fetch(), false); $imported = $r['releases']; }
+        catch (Throwable $e) { nl_watch_log("$slug : " . $e->getMessage()); }
+    }
+    nl_json(['ok' => true, 'id' => $id, 'slug' => $slug, 'imported' => $imported]);
 }
 
 function admin_release_save(): never
@@ -362,7 +372,7 @@ function admin_ci_release(): never
 function nl_files_dir_input(array $in): ?string
 {
     $v = nl_str($in, 'files_dir', 255);
-    if ($v === null) { return null; }
+    if ($v === null || preg_match('#^https?://#i', $v)) { return null; } // une adresse web : voir files_url
     $real = realpath($v);
     if (!$real || !is_dir($real)) { nl_fail("Dossier introuvable sur le serveur : $v"); }
     $roots = (array)(nl_config()['files_roots'] ?? [dirname(__DIR__, 3)]);
@@ -383,7 +393,7 @@ function admin_folder_import(): never
     $st = nl_db()->prepare('SELECT * FROM nl_projects WHERE id = ?');
     $st->execute([$id]);
     $p = $st->fetch() ?: nl_fail('Projet introuvable', 404);
-    if (empty($p['files_dir'])) { nl_fail("Renseigne d'abord le dossier du serveur du projet"); }
+    if (empty($p['files_dir']) && empty($p['files_url'])) { nl_fail("Renseigne d'abord le dossier du serveur ou son adresse web"); }
     $r = nl_folder_import($p, false);
     unset($r['new']);
     nl_json(['ok' => true] + $r);

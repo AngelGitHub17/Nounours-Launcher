@@ -46,6 +46,7 @@ if (!$isAdmin && $route !== 'asset' && $route !== 'download' && function_exists(
 
 try {
     nl_ensure_schema();
+    nl_setup_pandorpacks();
     switch ($route) {
         case '':
         case 'meta':

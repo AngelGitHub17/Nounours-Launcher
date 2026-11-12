@@ -247,10 +247,10 @@ pre{padding:10px;white-space:pre-wrap;user-select:all}
               <input name="default_lock_coins" type="number" min="0" placeholder="0" style="width:90px"> <span class="muted">pièces</span></div></div>
         </div>
         <div class="row">
-          <div class="field"><label>Dossier du serveur <span class="muted">(fichiers déjà en ligne)</span></label><input name="files_dir" placeholder="/home/didikaz/www2/PandorPacks"></div>
+          <div class="field"><label>Dossier du serveur <span class="muted">(fichiers déjà en ligne)</span></label><input name="files_dir" placeholder="/home/didikaz/www2/PandorPacks (facultatif)"></div>
           <div class="field"><label>Adresse publique de ce dossier</label><input name="files_url" placeholder="https://nsdkplus.fr/PandorPacks"></div>
         </div>
-        <p class="muted" style="margin:0;font-size:12px">Noms reconnus : « NomV2.91a-1.21.zip » (version 2.91a pour Minecraft 1.21), ou un sous-dossier par version. Les fichiers verrouillés passent par le serveur avec un lien personnel.</p>
+        <p class="muted" style="margin:0;font-size:12px">Sans dossier du serveur, le launcher lit la liste publique de l'adresse (page « Index of »). Noms reconnus : « NomV2.91a-1.21.zip » (version 2.91a pour Minecraft 1.21), ou un sous-dossier par version. Les fichiers verrouillés passent par le serveur avec un lien personnel.</p>
       </section>
     </form>
     <section id="relSection" class="hidden">
@@ -419,7 +419,7 @@ function openProject(p, keepScroll = false) {
     $('.panel').scrollTop = 0;
   }
   updateIconPrev();
-  if (p) { renderReleases(p); $('#folderImport').disabled = !p.files_dir; $('#watchRun').disabled = p.watch_mode === 'off'; }
+  if (p) { renderReleases(p); $('#folderImport').disabled = !p.files_dir && !p.files_url; $('#watchRun').disabled = p.watch_mode === 'off'; }
   if (p && !keepScroll) checkGithub(p);
 }
 function updateIconPrev() {
@@ -439,7 +439,7 @@ $('#saveProject').onclick = async () => {
   if (current) body.id = current.id;
   try {
     const r = await api('admin/project/save', body);
-    toast('Projet enregistré ✓');
+    toast(r.imported != null ? `Projet enregistré ✓ · ${r.imported} version(s) trouvée(s) dans le dossier` : 'Projet enregistré ✓');
     current = { id: r.id };
     await load();
   } catch (e) { toast(e.message, true); }

@@ -53,7 +53,8 @@ function nl_folder_scan(array $p, ?array $only = null): array
 {
     $dir = rtrim((string)$p['files_dir'], '/');
     $base = rtrim((string)$p['files_url'], '/');
-    if ($dir === '' || $base === '' || !is_dir($dir)) { return []; }
+    if ($base === '') { return []; }
+    if ($dir === '' || !is_dir($dir)) { return nl_remote_scan($base, $only); } // dossier d'un autre serveur : liste web
     $exts = 'zip|jar|exe|msi|dmg|pkg|apk|appimage|deb|rpm|mcpack|mrpack';
     $found = [];
     $walk = [[$dir, '']];
@@ -91,6 +92,55 @@ function nl_folder_scan(array $p, ?array $only = null): array
             $found[$semver]['assets'][] = ['platform' => $cls[0], 'kind' => $cls[1], 'url' => $url, 'size' => filesize($path), 'sha256' => null];
             $found[$semver]['path'][] = $path;
         }
+    }
+    return $found;
+}
+
+/** Lit une page « Index of » (Apache) : [noms de fichiers, noms de sous-dossiers] */
+function nl_http_listing(string $url): array
+{
+    $ch = curl_init(rtrim($url, '/') . '/');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_TIMEOUT => 15,
+        CURLOPT_USERAGENT => 'NounoursLauncher/' . NL_SERVER_VERSION]);
+    $html = (string)curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($code !== 200) { return [[], []]; }
+    preg_match_all('/href="([^"?#]+)"/i', $html, $m);
+    $files = []; $dirs = [];
+    foreach (array_unique($m[1]) as $h) {
+        if (str_starts_with($h, '/') || str_contains($h, '://') || str_starts_with($h, '..')) { continue; }
+        $name = rawurldecode($h);
+        if (str_ends_with($name, '/')) { $dirs[] = rtrim($name, '/'); } else { $files[] = $name; }
+    }
+    return [$files, $dirs];
+}
+
+/** Même analyse que nl_folder_scan, mais sur un dossier publié en ligne (liste web du serveur) */
+function nl_remote_scan(string $base, ?array $only = null): array
+{
+    [$files, $dirs] = nl_http_listing($base);
+    $all = array_map(fn($f) => ['', $f], $files);
+    foreach (array_slice($dirs, 0, 80) as $d) {
+        [$sub] = nl_http_listing($base . '/' . rawurlencode($d));
+        foreach ($sub as $f) { $all[] = [$d, $f]; }
+    }
+    $found = [];
+    foreach ($all as [$rel, $f]) {
+        if (!preg_match('/\.(zip|jar|exe|msi|dmg|pkg|apk|appimage|deb|rpm|mcpack|mrpack)$/i', $f)) { continue; }
+        $ver = null;
+        if (preg_match('/[Vv](\d+(?:\.\d+)*[a-z]?)(?=[^a-z0-9]|$)/', $f, $m)) { $ver = $m[1]; }
+        elseif ($rel !== '' && preg_match('/(\d+(?:\.\d+)*[a-z]?)/', $rel, $m)) { $ver = $m[1]; }
+        $semver = $ver !== null ? nl_label_to_semver($ver) : null;
+        if ($semver === null || ($only !== null && !in_array($semver, $only, true))) { continue; }
+        $mc = preg_match('/-(1\.\d+(?:\.\d+)?)\.[a-z]+$/i', $f, $m) ? $m[1] : null;
+        $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
+        $cls = in_array($ext, ['zip', 'mcpack'], true) && preg_match('/pack/i', $f) ? ['any', 'resourcepack'] : (nl_gh_classify($f) ?? ['any', 'file']);
+        $url = $base . '/' . ($rel !== '' ? rawurlencode($rel) . '/' : '') . rawurlencode($f);
+        $found[$semver] ??= ['label' => 'V' . $ver, 'notes' => $mc ? "Pour **Minecraft $mc**." : null,
+                             'pub_date' => gmdate('Y-m-d H:i:s'), 'assets' => [], 'path' => []];
+        $found[$semver]['assets'][] = ['platform' => $cls[0], 'kind' => $cls[1], 'url' => $url, 'size' => null, 'sha256' => null];
+        $found[$semver]['path'][] = null;
     }
     return $found;
 }
@@ -149,7 +199,7 @@ function nl_folder_import(array $p, bool $onlyNew, int $published = 1, bool $det
         $isNew = !in_array($version, $known, true);
         if ($onlyNew && !$isNew) { continue; }
         // Empreinte SHA-256 des nouveaux fichiers (vérifiée par le launcher avant installation)
-        foreach ($data['assets'] as $i => &$a) { $a['sha256'] = @hash_file('sha256', $data['path'][$i]) ?: null; }
+        foreach ($data['assets'] as $i => &$a) { $a['sha256'] = $data['path'][$i] ? (@hash_file('sha256', $data['path'][$i]) ?: null) : null; }
         unset($a);
         $rid = nl_store_release($p, $version, $data, 'folder', $isNew ? $published : 1, $detected && $isNew);
         $report['releases']++;
@@ -173,7 +223,7 @@ function nl_watch_tick(bool $force = false, ?int $onlyProject = null): array
         // (publiées sans verrou ni mail) ; seules les suivantes seront signalées.
         $first = !nl_known_versions((int)$p['id']);
         try {
-            if (!empty($p['files_dir'])) {
+            if (!empty($p['files_dir']) || !empty($p['files_url'])) {
                 $r = $first ? nl_folder_import($p, false) : nl_folder_import($p, true, $published, true);
                 if (!$first) { $found = array_merge($found, $r['new']); }
             }
@@ -277,4 +327,25 @@ function nl_utc_to_paris_input(?string $utc): string
     $d = new DateTime($utc, new DateTimeZone('UTC'));
     $d->setTimezone(new DateTimeZone('Europe/Paris'));
     return $d->format('Y-m-d\TH:i');
+}
+
+/** PandorPacks : réglage automatique (dossier de nsdkplus.fr) puis premier import, une seule fois */
+function nl_setup_pandorpacks(): void
+{
+    $flag = dirname(__DIR__) . '/cache/.pandorpacks_setup';
+    if (is_file($flag)) { return; }
+    @file_put_contents($flag, gmdate('c'));
+    $db = nl_db();
+    $st = $db->prepare("SELECT * FROM nl_projects WHERE slug = 'pandorpacks'");
+    $st->execute();
+    $p = $st->fetch();
+    if (!$p || !empty($p['files_dir']) || !empty($p['files_url'])) { return; } // déjà réglé à la main
+    $guess = realpath(dirname(__DIR__, 3) . '/www2/PandorPacks') ?: null;
+    $db->prepare("UPDATE nl_projects SET type = 'pack', files_dir = ?, files_url = 'https://nsdkplus.fr/PandorPacks', watch_mode = 'ask' WHERE id = ?")
+       ->execute([$guess, (int)$p['id']]);
+    $st->execute();
+    $p = $st->fetch();
+    if (!nl_known_versions((int)$p['id'])) {
+        try { nl_folder_import($p, false); } catch (Throwable $e) { nl_watch_log('pandorpacks : ' . $e->getMessage()); }
+    }
 }
