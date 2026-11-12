@@ -1,5 +1,5 @@
 // NounoursLauncher — interface
-import { DEFAULT_API, LS, apiUrl, loadCatalog, loadStatus, loadProject, clearCache } from './api.js';
+import { DEFAULT_API, LS, apiUrl, loadCatalog, loadStatus, loadProject, clearCache, auth, authStart, authPoll, authMe, authLogout, unlockRelease } from './api.js';
 import { esc, md } from './md.js';
 
 const isTauri = '__TAURI_INTERNALS__' in window;
@@ -12,6 +12,7 @@ const TYPES = {
   site:    { label: 'Sites',        one: 'Site',        icon: '🌐' },
   app:     { label: 'Applications', one: 'Application', icon: '🧩' },
   plugin:  { label: 'Plugins',      one: 'Plugin',      icon: '⛏️' },
+  pack:    { label: 'Packs de ressources', one: 'Pack de ressources', icon: '🧱' },
   service: { label: 'Services',     one: 'Service',     icon: '🛰️' },
   bot:     { label: 'Bots',         one: 'Bot',         icon: '🤖' },
   tool:    { label: 'Outils',       one: 'Outil',       icon: '🛠️' },
@@ -58,6 +59,9 @@ const state = {
   installed: {},          // applis installées par le launcher (registre local)
   progress: {},           // installations en cours : slug → { phase, done, total }
   autoApps: LS.get('nl.autoApps', true),
+  user: auth.token ? LS.get('nl.user') : null, // compte NounoursAccount connecté
+  releases: {},           // historique chargé par projet (fiche)
+  login: null,            // connexion en cours : { code, url, poll, until, timer }
 };
 
 // Types de fichiers préférés pour installer, par système
@@ -239,10 +243,30 @@ function bestAsset(p) {
   const rel = p.latest?.[state.platform];
   if (!rel?.assets?.length) return null;
   const order = PREFERRED_KINDS[state.platform.split('-')[0]] || [];
-  const assets = rel.assets.filter(a => a.kind !== 'updater');
+  const assets = rel.assets.filter(a => a.kind !== 'updater' && a.url);
   assets.sort((a, b) => (order.indexOf(a.kind) + 1 || 99) - (order.indexOf(b.kind) + 1 || 99));
   return assets[0] ? { rel, asset: assets[0] } : null;
 }
+
+/** Version la plus récente encore verrouillée pour ce compte (pièces, connexion) */
+function lockedRel(p) {
+  const rel = p.latest?.[state.platform];
+  return rel?.access && !rel.access.allowed ? rel : null;
+}
+const relName = r => r.label || 'v' + r.version;
+function lockLabel(a) {
+  if (a.reason === 'coins' || (a.reason === 'login' && a.coins > 0)) return state.user ? `Débloquer · ${a.coins} 🪙` : `Se connecter · ${a.coins} 🪙`;
+  if (a.reason === 'login') return 'Se connecter';
+  return 'Bientôt';
+}
+/** Compte à rebours lisible : « 2 j 03:12:09 » */
+function countdown(iso) {
+  let s = Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 1000));
+  const d = Math.floor(s / 86400); s %= 86400;
+  const pad = n => String(n).padStart(2, '0');
+  return (d ? `${d} j ` : '') + `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s % 3600 / 60))}:${pad(s % 60)}`;
+}
+const dateFr = iso => new Date(iso).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
 
 /** Applis installées qui ont une version plus récente dans le catalogue */
 function pendingUpdates() {
@@ -257,11 +281,17 @@ function primaryAction(p) {
   const b = bestAsset(p);
   const inst = state.installed[p.slug];
   if (state.progress[p.slug]) return { kind: 'busy', label: 'Installation…' };
+  const lk = lockedRel(p);
+  if (lk && (!b || cmpVer(lk.version, b.rel.version) > 0) && !(inst && cmpVer(inst.version, lk.version) >= 0)) {
+    // Dernière version verrouillée : si une ancienne est installée, on peut toujours la lancer depuis la fiche
+    if (inst && canInstall() && !b) return { kind: 'launch', label: p.type === 'pack' ? 'Ouvrir' : 'Lancer' };
+    return { kind: 'unlock', label: lockLabel(lk.access), rel: lk };
+  }
   if (b && canInstall()) {
     if (inst && cmpVer(b.rel.version, inst.version) > 0) return { kind: 'install', label: 'Mettre à jour', ...b };
     if (inst && !inst.exists) return { kind: 'install', label: 'Réinstaller', ...b };
-    if (inst) return { kind: 'launch', label: 'Lancer' };
-    return { kind: 'install', label: 'Installer', ...b };
+    if (inst) return { kind: 'launch', label: p.type === 'pack' ? 'Ouvrir' : 'Lancer' };
+    return { kind: 'install', label: p.type === 'pack' ? 'Ajouter à Minecraft' : 'Installer', ...b };
   }
   if (b) return { kind: 'download', label: state.platform === 'android' ? 'Installer' : 'Télécharger', ...b };
   if (p.website_url) return { kind: 'open', label: 'Ouvrir' };
@@ -290,9 +320,9 @@ function paintProgress(slug) {
   document.querySelectorAll(`[data-act][data-slug="${CSS.escape(slug)}"]`).forEach(b => { b.disabled = true; b.textContent = 'Installation…'; });
 }
 
-async function installProject(p, { quiet = false } = {}) {
-  const b = bestAsset(p);
-  if (!b || state.progress[p.slug]) return false;
+async function installProject(p, { quiet = false, pick = null } = {}) {
+  const b = pick || bestAsset(p);
+  if (!b || !b.asset?.url || state.progress[p.slug]) return false;
   const { rel, asset } = b;
   if (!asset.sha256 && !quiet && !confirm(`Le fichier de ${p.name} n'a pas d'empreinte de sécurité (SHA-256) : son intégrité ne pourra pas être vérifiée. Continuer ?`)) return false;
   state.progress[p.slug] = { phase: 'download', done: 0, total: asset.size || 0 };
@@ -302,11 +332,12 @@ async function installProject(p, { quiet = false } = {}) {
     await invoke('install_app', { req: {
       slug: p.slug, version: rel.version, url: asset.url, sha256: asset.sha256 || null,
       kind: asset.kind, install_args: asset.install_args || null, launch_path: asset.launch_path || null,
-      name: p.name,
+      name: p.name, file_name: asset.name || null,
     } });
     delete state.progress[p.slug];
     await loadInstalled();
-    toast(was ? `${p.name} mis à jour en v${rel.version}` : `${p.name} est installé`);
+    toast(p.type === 'pack' ? `${p.name} ${relName(rel)} ajouté aux packs de ressources de Minecraft`
+      : was ? `${p.name} : ${relName(rel)} installée` : `${p.name} est installé`);
     return true;
   } catch (e) {
     delete state.progress[p.slug];
@@ -368,8 +399,9 @@ function cardHtml(p) {
     <p>${esc(p.short_desc || '')}</p>
     <div class="card-foot">
       <span class="state">${statusBadge(p)}</span>
-      ${state.installed[p.slug] ? `<span class="ver mine" title="Version installée">v${esc(state.installed[p.slug].version)}</span>` : rel ? `<span class="ver">v${esc(rel.version)}</span>` : ''}
-      <button class="btn sm ${a.kind === 'details' ? 'ghost' : a.kind === 'launch' ? 'go' : 'primary'}" data-act="${a.kind}" data-slug="${esc(p.slug)}" ${a.kind === 'busy' ? 'disabled' : ''}>${a.label}</button>
+      ${state.installed[p.slug] ? `<span class="ver mine" title="Version installée">v${esc(state.installed[p.slug].version)}</span>` : rel ? `<span class="ver">${esc(relName(rel))}</span>` : ''}
+      ${!rel && p.upcoming?.length ? `<span class="ver soon" title="${esc(dateFr(p.upcoming[0].access.available_at))}">⏳ <span data-cd="${esc(p.upcoming[0].access.available_at)}">${countdown(p.upcoming[0].access.available_at)}</span></span>` : ''}
+      <button class="btn sm ${a.kind === 'details' ? 'ghost' : a.kind === 'launch' ? 'go' : a.kind === 'unlock' ? 'lock' : 'primary'}" data-act="${a.kind}" data-slug="${esc(p.slug)}" ${a.kind === 'busy' ? 'disabled' : ''}>${a.label}</button>
     </div>
     <div class="prog ${state.progress[p.slug] ? '' : 'hidden'}" data-prog="${esc(p.slug)}"><span></span><div class="progress"><i></i></div></div>
   </article>`;
@@ -440,7 +472,7 @@ async function openDetail(slug, refresh = false) {
           <div class="chips">
             <span class="chip">${esc(TYPES[p.type]?.one || p.type)}</span>
             ${p.status !== 'online' ? `<span class="chip st-${esc(p.status)}">${esc(STATUS[p.status] || p.status)}</span>` : ''}
-            ${rel ? `<span class="chip">v${esc(rel.version)}${rel.channel === 'beta' ? ' bêta' : ''}</span>` : ''}
+            ${rel ? `<span class="chip">${esc(relName(rel))}${rel.channel === 'beta' ? ' bêta' : ''}</span>` : ''}
             ${(p.tags || []).map(t => `<span class="chip ghost">#${esc(t)}</span>`).join('')}
           </div>
         </div>
@@ -450,6 +482,7 @@ async function openDetail(slug, refresh = false) {
         ${act.kind === 'launch' ? `<button class="btn go" data-act="launch" data-slug="${esc(p.slug)}">▶ Lancer</button>` : ''}
         ${act.kind === 'install' ? `<button class="btn primary" data-act="install" data-slug="${esc(p.slug)}">${esc(act.label)}${inst && act.label === 'Mettre à jour' ? ` · v${esc(inst.version)} → v${esc(b.rel.version)}` : asset?.size ? ` · ${fmtSize(asset.size)}` : ''}</button>` : ''}
         ${act.kind === 'busy' ? `<button class="btn" disabled>Installation…</button>` : ''}
+        ${act.kind === 'unlock' ? `<button class="btn lock" data-act="unlock" data-slug="${esc(p.slug)}" data-rel="${act.rel.id}">${esc(lockLabel(act.rel.access))}</button>` : ''}
         ${act.kind === 'download' ? `<button class="btn primary" data-open="${esc(asset.url)}">${state.platform === 'android' ? 'Installer sur Android' : 'Télécharger pour ' + esc(PLATFORM_NAMES[state.platform] || state.platform)}${asset.size ? ` · ${fmtSize(asset.size)}` : ''}</button>` : ''}
         ${p.website_url ? `<button class="btn ${['launch', 'install', 'download', 'busy'].includes(act.kind) ? '' : 'primary'}" data-open="${esc(p.website_url)}">Ouvrir ${p.type === 'site' ? 'le site' : "l'appli web"} ↗</button>` : ''}
         ${p.repo_url ? `<button class="btn ghost" data-open="${esc(p.repo_url)}">Code source ↗</button>` : ''}
@@ -457,7 +490,14 @@ async function openDetail(slug, refresh = false) {
       </div>
       <div class="prog wide ${state.progress[p.slug] ? '' : 'hidden'}" data-prog="${esc(p.slug)}"><span></span><div class="progress"><i></i></div></div>
       ${inst ? `<p class="hint">Installé : v${esc(inst.version)}${inst.exists ? '' : ' — <b>programme introuvable</b>, réinstalle-le'}${b?.rel.mandatory && cmpVer(b.rel.version, inst.version) > 0 ? ' · <b>mise à jour obligatoire</b>' : ''}</p>` : ''}
-      ${!asset && others.length ? `<p class="hint">Disponible aussi sur : ${esc(others.join(', '))}</p>` : ''}
+      ${!asset && !lockedRel(p) && others.length ? `<p class="hint">Disponible aussi sur : ${esc(others.join(', '))}</p>` : ''}
+      ${lockBox(p)}
+      ${(p.upcoming || []).length ? `<h3 class="section">Bientôt</h3><div class="soon-list">${p.upcoming.map(r => `
+        <div class="soon-item">
+          <div><b>${esc(relName(r))}</b> <span class="muted">· ${esc(dateFr(r.access.available_at))}</span>
+            ${r.access.coins ? `<span class="chip">${r.access.coins} 🪙</span>` : r.access.login ? '<span class="chip">🔒 compte</span>' : ''}</div>
+          <div class="cd" data-cd="${esc(r.access.available_at)}">${countdown(r.access.available_at)}</div>
+        </div>`).join('')}</div>` : ''}
 
       ${s ? `<div class="statusbox ${s.up ? 'ok' : 'bad'}">
         <span class="dot ${s.up ? 'ok' : 'bad'}"></span>
@@ -478,14 +518,25 @@ async function openDetail(slug, refresh = false) {
   try {
     const full = await loadProject(p.slug, state.platform, state.channel);
     const rels = (full.releases || []).filter(r => r.notes || r.assets.length);
+    state.releases[p.slug] = rels;
     const inst = state.installed[p.slug];
+    const relBtn = r => {
+      const a = r.access || { allowed: true };
+      if (!a.allowed) return `<button class="btn sm lock" data-act="unlock" data-slug="${esc(p.slug)}" data-rel="${r.id}">${esc(lockLabel(a))}</button>`;
+      const pick = pickAsset(r);
+      if (!pick || (inst && r.version === inst.version)) return '';
+      if (canInstall()) return `<button class="btn sm ghost" data-relinstall="${r.id}" data-slug="${esc(p.slug)}">${p.type === 'pack' ? 'Ajouter à Minecraft' : 'Installer cette version'}</button>`;
+      return `<button class="btn sm ghost" data-open="${esc(pick.url)}">Télécharger</button>`;
+    };
     const relHtml = r => `
         <article class="rel ${inst && r.version === inst.version ? 'current' : ''}">
           <div class="rel-h">
-            <b>v${esc(r.version)}</b>
+            <b>${esc(relName(r))}</b>
             ${r.channel === 'beta' ? '<span class="chip">bêta</span>' : ''}
             ${inst && r.version === inst.version ? '<span class="chip mine">installée</span>' : ''}
+            ${r.access?.coins ? `<span class="chip">${r.access.owned ? '✓ débloquée' : r.access.coins + ' 🪙'}</span>` : r.access?.login ? '<span class="chip">🔒 compte</span>' : ''}
             <span class="muted">${new Date(r.pub_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+            <span class="grow"></span>${relBtn(r)}
           </div>
           ${r.notes ? `<div class="md notes">${md(r.notes)}</div>` : '<p class="muted small">Pas de notes pour cette version.</p>'}
         </article>`;
@@ -496,6 +547,150 @@ async function openDetail(slug, refresh = false) {
     }
   } catch { /* hors ligne : pas d'historique */ }
 }
+
+/** Fichier d'une version (n'importe laquelle) pour ce système */
+function pickAsset(r) {
+  const order = PREFERRED_KINDS[state.platform.split('-')[0]] || [];
+  const list = (r.assets || []).filter(a => a.kind !== 'updater' && a.url);
+  list.sort((a, b) => (order.indexOf(a.kind) + 1 || 99) - (order.indexOf(b.kind) + 1 || 99));
+  return list[0] || null;
+}
+
+/** Encadré « version verrouillée » de la fiche */
+function lockBox(p) {
+  const lk = lockedRel(p);
+  if (!lk) return '';
+  const a = lk.access;
+  const why = a.coins > 0
+    ? `${esc(relName(lk))} se débloque avec <b>${a.coins} pièces</b> NounoursAccount (une seule fois, pour toujours).`
+    : `${esc(relName(lk))} est réservée aux comptes NounoursAccount.`;
+  const you = state.user ? `<p class="muted small">Ton solde : <b>${state.user.coins} pièces</b>${a.reason === 'coins' && state.user.coins < a.coins ? ' — pas assez pour l\'instant' : ''}</p>` : '';
+  return `<div class="lockbox"><div class="lk-ic">🔒</div><div><p>${why}</p>${you}</div></div>`;
+}
+
+/** Débloque (pièces) ou propose la connexion */
+async function unlockFlow(p, relId) {
+  const rel = [p.latest?.[state.platform], ...(p.upcoming || []), ...(state.releases[p.slug] || [])].find(r => r && r.id === relId);
+  if (!rel) return;
+  const a = rel.access;
+  if (a.reason === 'scheduled') { toast(`Sortie ${dateFr(a.available_at)}`); return; }
+  if (!state.user) { openAccount(true); return; }
+  if (a.reason !== 'coins') { toast('Cette version n\'est pas accessible avec ce compte', 'err'); return; }
+  if (state.user.coins < a.coins) { toast(`Il faut ${a.coins} pièces, tu en as ${state.user.coins}`, 'err'); return; }
+  if (!confirm(`Débloquer ${p.name} ${relName(rel)} pour ${a.coins} pièces ?\nTu en as ${state.user.coins}. C'est définitif pour ton compte.`)) return;
+  try {
+    const r = await unlockRelease(relId);
+    state.user = { ...state.user, coins: r.coins }; LS.set('nl.user', state.user);
+    toast(`${relName(rel)} débloquée ! Il te reste ${r.coins} pièces.`);
+    await refreshCatalog({ silent: true });
+    if (!$('#detail').classList.contains('hidden')) openDetail(p.slug, true);
+  } catch (e) {
+    if (e.data?.coins != null) { state.user = { ...state.user, coins: e.data.coins }; LS.set('nl.user', state.user); }
+    toast(e.message, 'err');
+  }
+}
+
+// ---------- Compte NounoursAccount ----------
+// Connexion par code (comme une TV) : le launcher affiche un code, la page du site le valide
+// une fois connecté à NounoursAccount ; le launcher reçoit alors son propre jeton.
+
+function renderAccountBtn() {
+  const b = $('#accountBtn');
+  if (!b) return;
+  const u = state.user;
+  b.querySelector('.ic').innerHTML = u?.avatar ? `<img src="${esc(u.avatar)}" alt="">` : '👤';
+  b.querySelector('.lbl').innerHTML = u ? `${esc(u.name)} <small>${u.coins} 🪙</small>` : 'Se connecter';
+  b.title = u ? `${u.name} · ${u.coins} pièces` : 'Se connecter avec NounoursAccount';
+}
+
+function renderAccount() {
+  const u = state.user, L = state.login;
+  $('#accountBody').innerHTML = u ? `
+      <div class="acct">
+        ${u.avatar ? `<img src="${esc(u.avatar)}" alt="">` : '<div class="pic">👤</div>'}
+        <div><b>${esc(u.name)}</b><div class="muted">@${esc(u.username || '')}</div></div>
+      </div>
+      <div class="coins"><span>🪙</span><b>${u.coins}</b> pièces</div>
+      <p class="muted small">Les pièces se gagnent sur les sites NounoursCorp. Elles débloquent des versions réservées, définitivement pour ton compte.</p>
+      <div class="row"><button class="btn" id="acctRefresh">Actualiser</button><button class="btn ghost danger" id="acctLogout">Se déconnecter</button></div>`
+    : L ? `
+      <p>Sur la page qui vient de s'ouvrir, connecte-toi à NounoursAccount et vérifie ce code :</p>
+      <div class="code">${esc(L.code)}</div>
+      <p class="muted small">En attente de validation… <span id="loginLeft"></span></p>
+      <div class="row"><button class="btn primary" data-open="${esc(L.url)}">Rouvrir la page ↗</button><button class="btn ghost" id="loginCancel">Annuler</button></div>`
+    : `
+      <p>Connecte le launcher à ton compte NounoursAccount pour :</p>
+      <ul class="muted"><li>voir les projets réservés aux membres ;</li><li>débloquer des versions avec tes pièces ;</li><li>télécharger les versions réservées aux comptes.</li></ul>
+      <button class="btn primary" id="loginStart">Se connecter avec NounoursAccount</button>`;
+}
+
+function openAccount(withHint = false) {
+  renderAccount();
+  showOverlay('#account');
+  if (withHint && !state.user && !state.login) toast('Connecte-toi pour débloquer cette version');
+}
+
+async function startLogin() {
+  try {
+    const r = await authStart(`NounoursLauncher · ${PLATFORM_NAMES[state.platform] || state.platform}`);
+    state.login = { ...r, until: Date.now() + r.expires_in * 1000 };
+    renderAccount();
+    openExternal(r.url);
+    pollLogin();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function pollLogin() {
+  const L = state.login;
+  if (!L) return;
+  if (Date.now() > L.until) { state.login = null; renderAccount(); toast('Code expiré : recommence', 'err'); return; }
+  const left = $('#loginLeft');
+  if (left) left.textContent = `(expire dans ${Math.ceil((L.until - Date.now()) / 60000)} min)`;
+  try {
+    const r = await authPoll(L.poll);
+    if (r.token) {
+      auth.token = r.token;
+      state.user = r.user; LS.set('nl.user', r.user);
+      state.login = null;
+      renderAccount(); renderAccountBtn();
+      toast(`Connecté : ${r.user.name}`);
+      clearCache(); await refreshCatalog({ silent: true });
+      return;
+    }
+  } catch (e) {
+    if (e.status === 410) { state.login = null; renderAccount(); toast('Code expiré : recommence', 'err'); return; }
+  }
+  if (state.login === L) L.timer = setTimeout(pollLogin, 3000);
+}
+
+async function refreshUser() {
+  if (!auth.token) return;
+  try {
+    const u = await authMe();
+    if (!u) { auth.token = null; state.user = null; LS.del('nl.user'); toast('Session expirée : reconnecte-toi', 'err'); }
+    else { state.user = u; LS.set('nl.user', u); }
+  } catch { /* hors ligne : on garde le dernier état */ }
+  renderAccountBtn();
+  if (!$('#account').classList.contains('hidden')) renderAccount();
+}
+
+// Comptes à rebours (fiches et cartes) ; une version qui sort → catalogue actualisé
+setInterval(() => {
+  let due = false;
+  document.querySelectorAll('[data-cd]').forEach(el => {
+    if (new Date(el.dataset.cd).getTime() <= Date.now()) { el.textContent = 'Disponible !'; due = true; }
+    else el.textContent = countdown(el.dataset.cd);
+  });
+  if (due && !state.cdRefresh) {
+    state.cdRefresh = true;
+    setTimeout(async () => {
+      await refreshCatalog({ silent: true });
+      const slug = $('#sheet').dataset.slug;
+      if (slug && !$('#detail').classList.contains('hidden')) openDetail(slug, true);
+      state.cdRefresh = false;
+    }, 2000);
+  }
+}, 1000);
 
 function showOverlay(sel) {
   const el = $(sel);
@@ -743,7 +938,31 @@ document.addEventListener('click', async e => {
     else if (kind === 'launch') launchProject(p);
     else if (kind === 'open') openExternal(p.website_url);
     else if (kind === 'download') openExternal(bestAsset(p).asset.url);
+    else if (kind === 'unlock') { if (act.dataset.rel) unlockFlow(p, +act.dataset.rel); else openDetail(p.slug); }
     else openDetail(p.slug);
+    return;
+  }
+
+  const ri = t.closest('[data-relinstall]');
+  if (ri) {
+    const p = state.projects.find(x => x.slug === ri.dataset.slug);
+    const r = (state.releases[ri.dataset.slug] || []).find(x => x.id === +ri.dataset.relinstall);
+    const a = r && pickAsset(r);
+    if (p && a) {
+      const inst = state.installed[p.slug];
+      if (inst && cmpVer(r.version, inst.version) < 0 && !confirm(`Revenir à ${relName(r)} ? Les mises à jour automatiques réinstalleront ensuite la dernière version (désactivable dans les réglages).`)) return;
+      installProject(p, { pick: { rel: r, asset: a } });
+    }
+    return;
+  }
+  if (t.closest('#accountBtn')) { openAccount(); return; }
+  if (t.id === 'loginStart') { startLogin(); return; }
+  if (t.id === 'loginCancel') { clearTimeout(state.login?.timer); state.login = null; renderAccount(); return; }
+  if (t.id === 'acctRefresh') { refreshUser().then(() => toast('Solde actualisé')); return; }
+  if (t.id === 'acctLogout') {
+    if (!confirm('Déconnecter le launcher de ton compte ?')) return;
+    await authLogout(); state.user = null; LS.del('nl.user'); clearCache();
+    renderAccount(); renderAccountBtn(); refreshCatalog({ silent: true }); toast('Déconnecté');
     return;
   }
 
@@ -837,7 +1056,11 @@ $('#autoApps').addEventListener('change', e => { state.autoApps = e.target.check
 $('#clearCache').addEventListener('click', () => { clearCache(); refreshCatalog(); toast('Cache vidé'); });
 
 // Icône introuvable → on garde l'initiale (pas de gestionnaire inline à cause de la CSP)
-document.addEventListener('error', e => { if (e.target.tagName === 'IMG' && e.target.closest('.pic')) e.target.remove(); }, true);
+document.addEventListener('error', e => {
+  if (e.target.tagName !== 'IMG') return;
+  if (e.target.closest('.pic')) e.target.remove();
+  else if (e.target.closest('.navbtn.account, .acct')) e.target.replaceWith(Object.assign(document.createElement('span'), { textContent: '👤' }));
+}, true);
 
 // Désactive le menu contextuel natif (sauf dans les champs de saisie)
 document.addEventListener('contextmenu', e => { if (!e.target.closest('input, textarea, .md')) e.preventDefault(); });
@@ -845,12 +1068,16 @@ document.addEventListener('contextmenu', e => { if (!e.target.closest('input, te
 // ---------- Démarrage ----------
 
 applyPrefs();
+renderAccountBtn();
+window.addEventListener('nl-auth-lost', () => { state.user = null; LS.del('nl.user'); renderAccountBtn(); });
 
 (async () => {
   try { await initNative(); } catch (e) { console.warn(e); }
   render();
   await refreshCatalog();
   refreshStatus();
+  refreshUser();
+  setInterval(refreshUser, 10 * 60 * 1000);
   setInterval(async () => { await refreshCatalog({ silent: true }); if (state.autoApps) updateAll({ auto: true }); }, 5 * 60 * 1000);
   setInterval(refreshStatus, 60 * 1000);
   setTimeout(() => checkUpdate(false, { startup: true }), 1500);

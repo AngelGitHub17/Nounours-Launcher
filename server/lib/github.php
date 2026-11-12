@@ -102,28 +102,11 @@ function nl_public_repo_url(?string $url): ?string
     return ($repo && nl_gh_is_private($repo)) ? null : $url;
 }
 
-/**
- * ?r=asset&id=N — téléchargement relais d'un fichier du catalogue.
- * Vérifie que la version est publiée et que le visiteur peut voir le projet.
- */
-function route_asset(): never
+/** Fichier d'une release d'un dépôt privé : redirection vers l'adresse temporaire fournie par GitHub */
+function nl_gh_redirect_asset(array $a): never
 {
-    $id = (int)($_GET['id'] ?? 0);
-    $st = nl_db()->prepare('SELECT a.*, r.published, r.version, p.visibility, p.slug
-                            FROM nl_assets a JOIN nl_releases r ON r.id = a.release_id JOIN nl_projects p ON p.id = r.project_id
-                            WHERE a.id = ?');
-    $st->execute([$id]);
-    $a = $st->fetch();
-    if (!$a || !(int)$a['published'] || !in_array($a['visibility'], nl_visibilities_for(nl_viewer_level()), true)) {
-        nl_fail('Fichier introuvable', 404);
-    }
-    $parsed = nl_gh_parse_asset_url((string)$a['url']);
-    if (!$parsed || nl_gh_token() === '') {
-        nl_redirect((string)$a['url']);
-    }
-    [$repo, $tag, $name] = $parsed;
-
-    // Identifiant GitHub du fichier (mis en cache : il ne change pas pour une release donnée)
+    [$repo, $tag, $name] = nl_gh_parse_asset_url((string)$a['url']);
+    $id = (int)$a['id'];
     $key = 'gh:asset:' . $id;
     $ghId = (int)(nl_setting($key) ?? 0);
     if ($ghId === 0) {
@@ -135,7 +118,6 @@ function route_asset(): never
         if ($ghId === 0) { nl_fail("Fichier $name absent de la release $tag", 404); }
         nl_setting_set($key, (string)$ghId);
     }
-
     // GitHub répond 302 vers une adresse signée valable quelques minutes : on y renvoie le visiteur
     [$code, , $headers] = nl_gh_request('/repos/' . $repo . '/releases/assets/' . $ghId, 'application/octet-stream', false);
     if (in_array($code, [301, 302, 307], true) && !empty($headers['location'])) {
@@ -225,10 +207,13 @@ function nl_gh_classify(string $name): ?array
  * Importe (ou complète) les releases GitHub d'un projet dans le catalogue.
  * Seuls les installeurs sont repris : jamais le code source ni les fichiers techniques.
  */
-function nl_gh_import(int $projectId, int $limit = 15): array
+function nl_gh_import(int $projectId, int $limit = 15, array $opt = []): array
 {
     $db = nl_db();
-    $st = $db->prepare('SELECT id, slug, github_repo, repo_url FROM nl_projects WHERE id = ?');
+    $onlyNew = !empty($opt['only_new']);          // surveillance : seulement les versions inconnues
+    $published = (int)($opt['published'] ?? 1);   // 0 = en attente de décision de l'admin
+    $detected = !empty($opt['detected']);
+    $st = $db->prepare('SELECT id, slug, github_repo, repo_url, default_lock_login, default_lock_coins FROM nl_projects WHERE id = ?');
     $st->execute([$projectId]);
     $p = $st->fetch();
     if (!$p) { nl_fail('Projet introuvable', 404); }
@@ -241,11 +226,14 @@ function nl_gh_import(int $projectId, int $limit = 15): array
     if ($code !== 200 || !is_array($releases)) { nl_fail("GitHub a répondu HTTP $code", 502); }
 
     $changelog = nl_gh_changelog($repo);
-    $report = ['repo' => $repo, 'releases' => 0, 'assets' => 0, 'notes_changelog' => 0, 'changelog' => $changelog !== null, 'skipped' => []];
+    $report = ['repo' => $repo, 'releases' => 0, 'assets' => 0, 'notes_changelog' => 0, 'changelog' => $changelog !== null, 'skipped' => [], 'new' => []];
+    $known = nl_known_versions($projectId);
     foreach ($releases as $r) {
         if (!empty($r['draft'])) { continue; }
         $version = nl_norm_version((string)($r['tag_name'] ?? ''));
         if (!nl_valid_version($version)) { $report['skipped'][] = (string)($r['tag_name'] ?? '?'); continue; }
+        $isNew = !in_array($version, $known, true);
+        if ($onlyNew && !$isNew) { continue; }
         $assets = [];
         foreach ($r['assets'] ?? [] as $ga) {
             $cls = nl_gh_classify((string)$ga['name']);
@@ -263,11 +251,14 @@ function nl_gh_import(int $projectId, int $limit = 15): array
 
         $db->beginTransaction();
         try {
-            $db->prepare('INSERT INTO nl_releases (project_id, version, channel, notes, published, mandatory, pub_date)
-                          VALUES (:p, :v, :c, :n, 1, 0, :d)
+            $db->prepare('INSERT INTO nl_releases (project_id, version, channel, notes, published, mandatory, pub_date, lock_login, lock_coins, source, detected_at)
+                          VALUES (:p, :v, :c, :n, :pub, 0, :d, :ll, :lc, \'github\', ' . ($detected ? 'UTC_TIMESTAMP()' : 'NULL') . ')
                           ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)')
                ->execute([
                    'p' => $projectId, 'v' => $version,
+                   'pub' => $isNew ? $published : 1,
+                   'll' => $isNew && $detected ? (int)$p['default_lock_login'] : 0,
+                   'lc' => $isNew && $detected ? (int)$p['default_lock_coins'] : 0,
                    'c' => (!empty($r['prerelease']) || str_contains($version, '-')) ? 'beta' : 'stable',
                    'n' => mb_substr((string)($r['body'] ?? ''), 0, 50000) ?: null,
                    'd' => gmdate('Y-m-d H:i:s', strtotime((string)($r['published_at'] ?? 'now')) ?: time()),
@@ -289,6 +280,7 @@ function nl_gh_import(int $projectId, int $limit = 15): array
             }
             $db->commit();
             $report['releases']++;
+            if ($isNew) { $report['new'][] = $rid; }
         } catch (Throwable $e) {
             $db->rollBack();
             throw $e;

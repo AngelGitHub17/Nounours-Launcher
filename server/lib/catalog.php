@@ -5,6 +5,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/github.php';
+require_once __DIR__ . '/access.php';
+require_once __DIR__ . '/watch.php';
 
 function nl_norm_version(string $v): string
 {
@@ -129,12 +131,18 @@ function nl_inherit_hints(array &$p): void
     }
 }
 
-function nl_fmt_asset(array $a): array
+/**
+ * Fichier formaté pour le launcher. Avec $release : l'adresse tient compte des droits du visiteur
+ * (null s'il n'y a pas droit, lien relais signé si le fichier est protégé).
+ */
+function nl_fmt_asset(array $a, ?array $release = null, ?array $project = null): array
 {
     return [
+        'id'           => (int)$a['id'],
         'platform'     => $a['platform'],
         'kind'         => $a['kind'],
-        'url'          => nl_public_asset_url($a),  // lien relais si le fichier vient d'un dépôt GitHub privé
+        'url'          => $release !== null ? nl_asset_url_for($a, $release, $project) : nl_public_asset_url($a),
+        'name'         => basename((string)parse_url((string)$a['url'], PHP_URL_PATH)),
         'size'         => $a['size'] !== null ? (int)$a['size'] : null,
         'sha256'       => $a['sha256'],
         'signature'    => $a['signature'],
@@ -143,19 +151,22 @@ function nl_fmt_asset(array $a): array
     ];
 }
 
-function nl_fmt_release(array $r, ?string $platform = null): array
+function nl_fmt_release(array $r, ?string $platform = null, ?array $project = null): array
 {
     $assets = $r['assets'];
     if ($platform !== null) {
-        $assets = array_values(array_filter($assets, fn($a) => $a['platform'] === $platform));
+        $assets = array_values(array_filter($assets, fn($a) => $a['platform'] === $platform || $a['platform'] === 'any'));
     }
     return [
+        'id'        => (int)$r['id'],
         'version'   => $r['version'],
+        'label'     => $r['label'] ?? null,
         'channel'   => $r['channel'],
         'pub_date'  => gmdate('c', strtotime($r['pub_date'] . ' UTC')),
         'notes'     => $r['notes'] ?? '',
         'mandatory' => (bool)$r['mandatory'],
-        'assets'    => array_map('nl_fmt_asset', $assets),
+        'access'    => nl_release_access($r),
+        'assets'    => array_map(fn($a) => nl_fmt_asset($a, $r, $project), $assets),
     ];
 }
 
@@ -164,9 +175,9 @@ function nl_latest_for(array $project, string $platform, string $channel, ?strin
 {
     $channels = nl_channels_for($channel);
     foreach ($project['releases'] as $r) { // déjà triées décroissantes
-        if (!(int)$r['published'] || !in_array($r['channel'], $channels, true)) { continue; }
+        if (!(int)$r['published'] || !in_array($r['channel'], $channels, true) || !nl_release_available($r)) { continue; }
         foreach ($r['assets'] as $a) {
-            if ($a['platform'] === $platform && ($kind === null || $a['kind'] === $kind)) {
+            if (($a['platform'] === $platform || $a['platform'] === 'any') && ($kind === null || $a['kind'] === $kind)) {
                 return ['release' => $r, 'asset' => $a];
             }
         }
@@ -199,8 +210,12 @@ function nl_fmt_project(array $p, string $channel, ?string $platform, bool $with
     foreach (($platform !== null ? [$platform] : $platforms) as $pf) {
         if ($pf === 'web') { continue; }
         $l = nl_latest_for($p, $pf, $channel);
-        if ($l) { $latest[$pf] = nl_fmt_release($l['release'], $pf); }
+        if ($l) { $latest[$pf] = nl_fmt_release($l['release'], $pf, $p); }
     }
+    // Versions programmées : visibles (grisées, avec leur date) avant leur sortie
+    $channels = nl_channels_for($channel);
+    $upcoming = array_values(array_filter($p['releases'], fn($r) => (int)$r['published'] && !nl_release_available($r) && in_array($r['channel'], $channels, true)));
+    usort($upcoming, fn($a, $b) => strcmp((string)$a['available_at'], (string)$b['available_at']));
     $out = [
         'slug'         => $p['slug'],
         'name'         => $p['name'],
@@ -219,12 +234,16 @@ function nl_fmt_project(array $p, string $channel, ?string $platform, bool $with
         'sort'         => (int)$p['sort_order'],
         'platforms'    => $platforms,
         'latest'       => (object)$latest,
+        'upcoming'     => array_map(fn($r) => nl_fmt_release($r, $platform, $p), array_slice($upcoming, 0, 5)),
+        'locked'       => (bool)array_filter($p['releases'], fn($r) => (int)$r['published'] && ((int)($r['lock_login'] ?? 0) || (int)($r['lock_coins'] ?? 0))),
         'updated_at'   => gmdate('c', strtotime($p['updated_at'] . ' UTC')),
     ];
     if ($withHistory) {
         $channels = nl_channels_for($channel);
         $hist = array_filter($p['releases'], fn($r) => (int)$r['published'] && in_array($r['channel'], $channels, true));
-        $out['releases'] = array_map(fn($r) => nl_fmt_release($r, $platform), array_slice(array_values($hist), 0, 20));
+        // Historique : versions sorties (les programmées sont dans « upcoming »)
+        $hist = array_filter($hist, 'nl_release_available');
+        $out['releases'] = array_map(fn($r) => nl_fmt_release($r, $platform, $p), array_slice(array_values($hist), 0, 30));
     }
     return $out;
 }

@@ -131,6 +131,10 @@ code,pre{background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:6p
 pre{padding:10px;white-space:pre-wrap;user-select:all}
 @media(max-width:640px){.me span{display:none}}
 @media(max-width:640px){.row,.row3,.assetform{grid-template-columns:1fr}header.top input{display:none}}
+.sched input{width:auto!important;height:32px;padding:4px 10px!important;margin:0}
+.sched input[type=checkbox]{height:auto}
+.sched input[name=label]{width:110px!important}.sched input[name=lock_coins]{width:80px!important}
+.sched .toggle{margin:0}
 </style>
 </head>
 <body>
@@ -183,7 +187,7 @@ pre{padding:10px;white-space:pre-wrap;user-select:all}
         </div>
         <div class="row3">
           <div class="field"><label>Type</label><select name="type">
-            <option value="site">Site web</option><option value="app">Application</option><option value="plugin">Plugin Minecraft</option>
+            <option value="site">Site web</option><option value="app">Application</option><option value="plugin">Plugin Minecraft</option><option value="pack">Pack de ressources</option>
             <option value="service">Service</option><option value="bot">Bot</option><option value="tool">Outil</option><option value="launcher">Launcher</option></select></div>
           <div class="field"><label>Statut</label><select name="status">
             <option value="online">En ligne</option><option value="beta">Bêta</option><option value="dev">En développement</option><option value="archived">Archivé</option></select></div>
@@ -213,11 +217,31 @@ pre{padding:10px;white-space:pre-wrap;user-select:all}
           <div class="field"><label>Bannière</label><div style="display:flex;gap:6px"><input name="banner_url" placeholder="URL"><button type="button" class="btn sm" data-upload="banner_url">↑</button></div></div>
         </div>
       </section>
+      <section>
+        <h3>Nouvelles versions & accès</h3>
+        <div class="row">
+          <div class="field"><label>Surveillance (GitHub et/ou dossier, toutes les 15 min)</label><select name="watch_mode">
+            <option value="off">Désactivée</option>
+            <option value="ask">Me demander par mail (publier ou programmer)</option>
+            <option value="publish">Publier tout de suite (mail d'information)</option></select></div>
+          <div class="field"><label>Verrou par défaut des nouvelles versions</label>
+            <div style="display:flex;gap:10px;align-items:center">
+              <label class="toggle"><input type="checkbox" name="default_lock_login"> Compte requis</label>
+              <input name="default_lock_coins" type="number" min="0" placeholder="0" style="width:90px"> <span class="muted">pièces</span></div></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Dossier du serveur <span class="muted">(fichiers déjà en ligne)</span></label><input name="files_dir" placeholder="/home/didikaz/www2/PandorPacks"></div>
+          <div class="field"><label>Adresse publique de ce dossier</label><input name="files_url" placeholder="https://nsdkplus.fr/PandorPacks"></div>
+        </div>
+        <p class="muted" style="margin:0;font-size:12px">Noms reconnus : « NomV2.91a-1.21.zip » (version 2.91a pour Minecraft 1.21), ou un sous-dossier par version. Les fichiers verrouillés passent par le serveur avec un lien personnel.</p>
+      </section>
     </form>
     <section id="relSection" class="hidden">
       <h3>Versions</h3>
       <div class="ghbar">
         <button type="button" class="btn sm" id="ghImport">⬇ Importer / actualiser depuis GitHub</button>
+        <button type="button" class="btn sm" id="folderImport">📁 Importer le dossier</button>
+        <button type="button" class="btn sm" id="watchRun">🔎 Chercher les nouvelles versions</button>
         <span class="muted" id="ghState" style="font-size:12.5px"></span>
       </div>
       <div id="releases"></div>
@@ -226,11 +250,17 @@ pre{padding:10px;white-space:pre-wrap;user-select:all}
         <form id="relForm" style="margin-top:10px">
           <div class="row3">
             <div class="field"><label>Version *</label><input name="version" placeholder="1.0.0" required></div>
+            <div class="field"><label>Nom affiché <span class="muted">(facultatif)</span></label><input name="label" placeholder="V2.91a"></div>
             <div class="field"><label>Canal</label><select name="channel"><option value="stable">Stable</option><option value="beta">Bêta</option></select></div>
             <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;gap:6px">
               <label class="toggle"><input type="checkbox" name="published" checked> Publiée</label>
               <label class="toggle"><input type="checkbox" name="mandatory"> Obligatoire</label>
             </div>
+          </div>
+          <div class="row3">
+            <div class="field"><label>Sortie programmée <span class="muted">(heure de Paris, vide = tout de suite)</span></label><input name="available_local" type="datetime-local"></div>
+            <div class="field"><label>Prix en pièces</label><input name="lock_coins" type="number" min="0" placeholder="0"></div>
+            <div class="field" style="display:flex;align-items:flex-end"><label class="toggle"><input type="checkbox" name="lock_login"> Compte requis</label></div>
           </div>
           <div class="field"><label>Notes de version (Markdown)</label><textarea name="notes" placeholder="- Nouveauté…"></textarea></div>
           <button class="btn primary">Créer la version</button>
@@ -248,10 +278,11 @@ pre{padding:10px;white-space:pre-wrap;user-select:all}
 const API = '../api.php';
 const PLATFORMS = {
   'windows-x86_64':'Windows x64','windows-aarch64':'Windows ARM','darwin-aarch64':'macOS Apple Silicon','darwin-x86_64':'macOS Intel',
-  'linux-x86_64':'Linux x64','linux-aarch64':'Linux ARM','android':'Android','ios':'iOS','web':'Web','server':'Serveur (plugin)'
+  'linux-x86_64':'Linux x64','linux-aarch64':'Linux ARM','android':'Android','ios':'iOS','web':'Web','server':'Serveur (plugin)','any':'Toutes (fichier commun)'
 };
-const KINDS = ['installer','updater','portable','msi','apk','dmg','pkg','appimage','deb','rpm','jar','zip','store','web'];
-const TYPES = {site:'Sites',app:'Applications',plugin:'Plugins',service:'Services',bot:'Bots',tool:'Outils',launcher:'Launcher'};
+const KINDS = ['installer','updater','portable','msi','apk','dmg','pkg','appimage','deb','rpm','jar','zip','resourcepack','file','store','web'];
+const STATE = { pending: ['En attente', 'b-dev'], scheduled: ['Programmée', 'b-beta'], live: ['Publiée', 'b-online'] };
+const TYPES = {site:'Sites',app:'Applications',plugin:'Plugins',pack:'Packs de ressources',service:'Services',bot:'Bots',tool:'Outils',launcher:'Launcher'};
 const STATUS = {online:'En ligne',beta:'Bêta',dev:'En dev',archived:'Archivé'};
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -340,6 +371,7 @@ function render() {
       <div class="meta"><span class="badge b-${esc(p.status)}">${esc(STATUS[p.status] || p.status)}</span>
         <span class="badge">${esc(TYPES[p.type] || p.type)}</span>
         ${v ? `<span class="badge">v${esc(v)}</span>` : ''}
+        ${p.pending ? `<span class="badge b-dev">${p.pending} en attente</span>` : ''}
         ${p.visibility !== 'public' ? `<span class="badge b-${esc(p.visibility)}">${p.visibility === 'private' ? 'Privé' : 'Membres'}</span>` : ''}</div>`;
     iconHtml(p, $('.ico', c));
     c.onclick = () => openProject(p);
@@ -365,12 +397,12 @@ function openProject(p, keepScroll = false) {
   if (!keepScroll) {
     pForm.reset();
     const v = p || { type: filterType !== 'all' ? filterType : 'app', status: 'dev', visibility: 'public', sort_order: 100 };
-    for (const el of pForm.elements) if (el.name) el.value = v[el.name] ?? '';
+    for (const el of pForm.elements) if (el.name) { if (el.type === 'checkbox') el.checked = !!v[el.name]; else el.value = v[el.name] ?? ''; }
     $('#accentPick').value = /^#[0-9a-f]{6}$/i.test(v.accent_color || '') ? v.accent_color : '#4aa8ff';
     $('.panel').scrollTop = 0;
   }
   updateIconPrev();
-  if (p) renderReleases(p);
+  if (p) { renderReleases(p); $('#folderImport').disabled = !p.files_dir; $('#watchRun').disabled = p.watch_mode === 'off'; }
   if (p && !keepScroll) checkGithub(p);
 }
 function updateIconPrev() {
@@ -428,6 +460,19 @@ $('#ghImport').onclick = async () => {
   finally { b.disabled = false; b.textContent = '⬇ Importer / actualiser depuis GitHub'; }
 };
 
+$('#folderImport').onclick = async () => {
+  if (!current) return;
+  const b = $('#folderImport'); b.disabled = true;
+  try { const r = await api('admin/folder/import', { project_id: current.id }); toast(`${r.releases} version(s), ${r.assets} fichier(s) trouvés dans le dossier`); await load(); }
+  catch (e) { toast(e.message, true); } finally { b.disabled = false; }
+};
+$('#watchRun').onclick = async () => {
+  if (!current) return;
+  const b = $('#watchRun'); b.disabled = true;
+  try { const r = await api('admin/watch/run', { project_id: current.id }); toast(r.new.length ? `${r.new.length} nouvelle(s) version(s) : mail envoyé` : 'Rien de nouveau'); await load(); }
+  catch (e) { toast(e.message, true); } finally { b.disabled = false; }
+};
+
 // Upload d'images
 let uploadTarget = null;
 document.querySelectorAll('[data-upload]').forEach(b => b.onclick = () => { uploadTarget = b.dataset.upload; $('#fileInput').click(); });
@@ -448,13 +493,25 @@ function renderReleases(p) {
   p.releases.forEach(r => {
     const el = document.createElement('div');
     el.className = 'release';
-    el.innerHTML = `<div class="rh"><b>v${esc(r.version)}</b>
+    const st = STATE[r.state] || STATE.live;
+    const when = r.available_at ? new Date(r.available_at.replace(' ', 'T') + 'Z').toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+    el.innerHTML = `<div class="rh"><b>${esc(r.label || 'v' + r.version)}</b>${r.label ? ` <span class="muted" style="font-size:12px">${esc(r.version)}</span>` : ''}
+        <span class="badge ${st[1]}">${st[0]}${r.state === 'scheduled' ? ' · ' + esc(when) : ''}</span>
+        ${r.lock_coins ? `<span class="badge">🪙 ${r.lock_coins} · ${r.purchases} achat${r.purchases > 1 ? 's' : ''}</span>` : r.lock_login ? '<span class="badge">🔒 Compte</span>' : ''}
         <span class="badge ${r.channel === 'beta' ? 'b-beta' : ''}">${r.channel === 'beta' ? 'Bêta' : 'Stable'}</span>
         ${r.mandatory ? '<span class="badge b-dev">Obligatoire</span>' : ''}
         <span class="muted" style="font-size:12px">${esc(new Date(r.pub_date.replace(' ', 'T') + 'Z').toLocaleString('fr-FR'))}</span>
         <span class="grow"></span>
         <label class="toggle"><input type="checkbox" data-act="pub" ${r.published ? 'checked' : ''}> Publiée</label>
         <button class="btn danger sm" data-act="del">Supprimer</button></div>
+      <form class="sched" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;font-size:13px">
+        <input name="label" value="${esc(r.label || '')}" placeholder="Nom affiché" style="width:110px">
+        <span class="muted">Sortie</span><input name="available_local" type="datetime-local" value="${esc(r.available_local || '')}">
+        <label class="toggle"><input type="checkbox" name="lock_login" ${r.lock_login ? 'checked' : ''}> Compte</label>
+        <input name="lock_coins" type="number" min="0" value="${r.lock_coins || 0}" style="width:80px"><span class="muted">pièces</span>
+        <button class="btn sm">Enregistrer</button>
+        ${r.state === 'live' ? '' : '<button type="button" class="btn primary sm" data-act="now">Publier maintenant</button>'}
+      </form>
       ${r.notes ? `<div class="muted" style="white-space:pre-wrap;font-size:12.5px;margin-top:6px">${esc(r.notes)}</div>` : ''}
       <table class="assets"><thead><tr><th>Plateforme</th><th>Type</th><th>Fichier</th><th>Taille</th><th></th></tr></thead><tbody>
       ${r.assets.map(a => `<tr><td>${esc(PLATFORMS[a.platform] || a.platform)}</td><td>${esc(a.kind)}${a.signature ? ' 🔏' : ''}${a.launch_path ? ' ▶' : ''}</td>
@@ -478,6 +535,19 @@ function renderReleases(p) {
       try { await api('admin/release/save', { ...r, published: e.target.checked }); toast(e.target.checked ? 'Version publiée' : 'Version dépubliée'); await load(); }
       catch (err) { toast(err.message, true); e.target.checked = !e.target.checked; }
     };
+    const sf = $('form.sched', el);
+    sf.onsubmit = async e => {
+      e.preventDefault();
+      const body = { ...r, label: sf.label.value, available_local: sf.available_local.value, lock_login: sf.lock_login.checked, lock_coins: +sf.lock_coins.value || 0 };
+      if (body.available_local && r.state === 'pending') body.published = true; // une date choisie = programmée
+      try { await api('admin/release/save', body); toast(body.available_local ? 'Sortie programmée ✓' : 'Version enregistrée ✓'); await load(); }
+      catch (err) { toast(err.message, true); }
+    };
+    const nowBtn = $('[data-act="now"]', el);
+    if (nowBtn) nowBtn.onclick = async () => {
+      try { await api('admin/release/schedule', { id: r.id, when: 'now', lock_login: sf.lock_login.checked, lock_coins: +sf.lock_coins.value || 0 }); toast('Version publiée ✓'); await load(); }
+      catch (err) { toast(err.message, true); }
+    };
     $('[data-act="del"]', el).onclick = async () => {
       if (!confirm(`Supprimer la version ${r.version} et ses fichiers ?`)) return;
       try { await api('admin/release/delete', { id: r.id }); toast('Version supprimée'); await load(); } catch (err) { toast(err.message, true); }
@@ -499,7 +569,8 @@ $('#relForm').onsubmit = async e => {
   e.preventDefault();
   const f = e.target;
   const body = { project_id: current.id, version: f.version.value, channel: f.channel.value, notes: f.notes.value,
-                 published: f.published.checked, mandatory: f.mandatory.checked };
+                 published: f.published.checked, mandatory: f.mandatory.checked, label: f.label.value,
+                 available_local: f.available_local.value, lock_login: f.lock_login.checked, lock_coins: +f.lock_coins.value || 0 };
   try { await api('admin/release/save', body); toast('Version créée ✓'); f.reset(); f.published.checked = true; $('#newRelDetails').open = false; await load(); }
   catch (err) { toast(err.message, true); }
 };

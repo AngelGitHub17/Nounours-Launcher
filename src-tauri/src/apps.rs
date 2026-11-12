@@ -60,6 +60,9 @@ pub struct InstallRequest {
     pub launch_path: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
+    /// Nom du fichier (indispensable quand l'adresse est un relais : api.php?r=asset…)
+    #[serde(default)]
+    pub file_name: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -182,7 +185,7 @@ fn expand_vars(input: &str) -> String {
 
 fn view(a: InstalledApp) -> InstalledView {
     let exists = a.launch.as_deref().map(|p| Path::new(p).exists()).unwrap_or(true);
-    let removable = a.dir.is_some();
+    let removable = a.dir.is_some() || a.kind == "resourcepack";
     InstalledView { app: a, exists, removable }
 }
 
@@ -240,7 +243,8 @@ async fn do_install<Rt: Runtime>(app: &AppHandle<Rt>, state: &State<'_, AppsStat
 
 /// Télécharge en flux vers le cache, avec progression et vérification SHA-256
 async fn download<Rt: Runtime>(app: &AppHandle<Rt>, req: &InstallRequest) -> R<PathBuf> {
-    let name = req.url.rsplit('/').next().unwrap_or("fichier").split('?').next().unwrap_or("fichier");
+    let from_url = req.url.rsplit('/').next().unwrap_or("fichier").split('?').next().unwrap_or("fichier");
+    let name = req.file_name.as_deref().map(|n| n.rsplit(['/', '\\']).next().unwrap_or(n)).filter(|n| !n.is_empty()).unwrap_or(from_url);
     let safe: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || ".-_".contains(c) { c } else { '_' }).collect();
     let path = downloads_dir(app)?.join(format!("{}-{}", req.slug, safe));
     let part = path.with_extension("part");
@@ -319,7 +323,7 @@ fn install_file<Rt: Runtime>(app: &AppHandle<Rt>, req: &InstallRequest, file: &P
                 extract_zip(file, &staging)?;
             } else {
                 let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                let name = name.splitn(2, '-').nth(1).unwrap_or(&name).to_string(); // retire le préfixe "slug-"
+                let name = name.strip_prefix(&format!("{}-", req.slug)).unwrap_or(&name).to_string(); // retire le préfixe "slug-"
                 fs::copy(file, staging.join(&name)).map_err(e2s)?;
                 make_executable(&staging.join(&name));
             }
@@ -392,6 +396,25 @@ fn install_file<Rt: Runtime>(app: &AppHandle<Rt>, req: &InstallRequest, file: &P
             if entry.launch.is_none() {
                 return Err("Installation annulée ou appli introuvable dans Applications".into());
             }
+            let _ = fs::remove_file(file);
+        }
+
+        // Pack de ressources Minecraft : copié dans le dossier resourcepacks du jeu
+        // (l'ancienne version du même projet est retirée)
+        "resourcepack" => {
+            let packs = resourcepacks_dir().ok_or("Dossier de Minecraft introuvable : lance Minecraft une fois puis réessaie")?;
+            fs::create_dir_all(&packs).map_err(e2s)?;
+            if let Some(old) = load_registry(app).get(&req.slug).and_then(|e| e.launch.clone()) {
+                let old = PathBuf::from(old);
+                if old.starts_with(&packs) && old.is_file() {
+                    let _ = fs::remove_file(old);
+                }
+            }
+            let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = name.strip_prefix(&format!("{}-", req.slug)).unwrap_or(&name).to_string(); // retire le préfixe "slug-"
+            let dest = packs.join(&name);
+            fs::copy(file, &dest).map_err(|e| format!("Copie dans Minecraft impossible : {e}"))?;
+            entry.launch = Some(dest.to_string_lossy().into_owned());
             let _ = fs::remove_file(file);
         }
 
@@ -576,6 +599,17 @@ fn make_executable(_p: &Path) {
     }
 }
 
+/// Dossier « resourcepacks » de Minecraft (Java Edition, emplacement par défaut)
+fn resourcepacks_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let base = std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join(".minecraft"));
+    #[cfg(target_os = "macos")]
+    let base = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support/minecraft"));
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let base = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".minecraft"));
+    base.map(|b| b.join("resourcepacks"))
+}
+
 fn open_with_system(p: &Path) -> R<()> {
     #[cfg(windows)]
     let st = Command::new("explorer").arg(p).spawn();
@@ -591,6 +625,12 @@ pub fn launch_app<Rt: Runtime>(app: AppHandle<Rt>, state: State<'_, AppsState>, 
     check_slug(&slug)?;
     let mut reg = load_registry(&app);
     let entry = reg.get(&slug).cloned().ok_or("Cette appli n'est pas installée")?;
+    // Pack de ressources : « Ouvrir » montre le dossier resourcepacks de Minecraft
+    if entry.kind == "resourcepack" {
+        let dir = entry.launch.as_deref().and_then(|p| Path::new(p).parent().map(Path::to_path_buf))
+            .or_else(resourcepacks_dir).ok_or("Dossier de Minecraft introuvable")?;
+        return open_with_system(&dir);
+    }
     let known = entry.launch.as_deref().filter(|p| Path::new(p).exists()).map(PathBuf::from);
     let target = match known {
         Some(p) => p,
@@ -666,6 +706,14 @@ pub fn remove_app<Rt: Runtime>(app: AppHandle<Rt>, state: State<'_, AppsState>, 
             deleted = true;
         }
     }
+    if entry.kind == "resourcepack" {
+        if let (Some(f), Some(packs)) = (entry.launch.as_deref().map(PathBuf::from), resourcepacks_dir()) {
+            if f.starts_with(&packs) && f.is_file() {
+                fs::remove_file(&f).map_err(|e| format!("Suppression impossible (Minecraft ouvert ?) : {e}"))?;
+                deleted = true;
+            }
+        }
+    }
     save_registry(&app, &reg)?;
     Ok(deleted)
 }
@@ -727,7 +775,7 @@ mod tests {
                 let mut buf = [0u8; 2048];
                 let n = stream.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]);
-                let path = req.split_whitespace().nth(1).unwrap_or("/").to_string();
+                let path = req.split_whitespace().nth(1).unwrap_or("/").split('?').next().unwrap_or("/").to_string();
                 let body = files.iter().find(|(p, _)| *p == path).map(|(_, b)| b.clone());
                 let resp = match body {
                     Some(b) => { let mut r = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", b.len()).into_bytes(); r.extend(b); r }
@@ -745,7 +793,7 @@ mod tests {
         let sha = |b: &[u8]| hex::encode(Sha256::digest(b));
         let req = |slug: &str, kind: &str, file: &str, sum: Option<String>| InstallRequest {
             slug: slug.into(), version: "1.0.0".into(), url: format!("http://127.0.0.1:{port}{file}"),
-            sha256: sum, kind: kind.into(), install_args: None, launch_path: None, name: None,
+            sha256: sum, kind: kind.into(), install_args: None, launch_path: None, name: None, file_name: None,
         };
 
         // 1) Empreinte fausse → refus
@@ -776,6 +824,21 @@ mod tests {
         assert!(!dir.exists());
         assert!(remove_app(h.clone(), app.state(), "nl-test-ai".into()).unwrap());
         assert!(installed_apps(h.clone()).get("nl-test-zip").is_none());
+
+        // 5) Pack de ressources : copié dans ~/.minecraft/resourcepacks sous son vrai nom (adresse relais)
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            let home = std::env::temp_dir().join(format!("nl-test-home-{}", std::process::id()));
+            std::env::set_var("HOME", &home);
+            let mut r = req("nl-test-pack", "resourcepack", "/app.zip?r=asset&id=1", Some(sha(&zipbuf)));
+            r.file_name = Some("PandorPacksV3.0-1.21.zip".into());
+            let v = tauri::async_runtime::block_on(install_app(h.clone(), app.state(), r)).unwrap();
+            let dest = home.join(".minecraft/resourcepacks/PandorPacksV3.0-1.21.zip");
+            assert!(dest.is_file() && v.removable, "{:?}", v.app.launch);
+            assert!(remove_app(h.clone(), app.state(), "nl-test-pack".into()).unwrap());
+            assert!(!dest.exists());
+            let _ = fs::remove_dir_all(&home);
+        }
         let _ = fs::remove_file(&out);
     }
 }

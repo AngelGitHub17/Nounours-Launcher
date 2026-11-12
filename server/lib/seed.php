@@ -19,7 +19,7 @@ function nl_seed(PDO $db): void
         ['nounoursservicenow', 'NounoursServiceNow', 'app', 'Commandes en salle, notifications push, gestion des stocks.', 'https://didikaria.fr/command/', null, 100, 'online', '#1e8cff'],
         ['nounourscaisse', 'NounoursCaisse', 'app', 'Caisse sur tablette : ventes, sessions et remboursements.', 'https://didikaria.fr/caisse/tablet/', null, 110, 'online', '#1e8cff'],
         ['railboard', 'Railboard', 'app', 'Panneaux départs/arrivées, annonces, lignes et billets.', 'https://didikaria.fr/travels/', null, 120, 'online', '#1e8cff'],
-        ['pandorpacks', 'PandorPacks', 'plugin', 'Packs de ressources Minecraft pour NewSky (1.16 → 1.21).', 'https://nsdkplus.fr/?page=pandorpacks', null, 200, 'online', '#9348e6'],
+        ['pandorpacks', 'PandorPacks', 'pack', 'Packs de ressources Minecraft pour NewSky (1.16 → 1.21).', 'https://nsdkplus.fr/?page=pandorpacks', null, 200, 'online', '#9348e6'],
     ];
     $ins = $db->prepare('INSERT IGNORE INTO nl_projects
         (slug, name, type, short_desc, website_url, status_check_url, sort_order, status, accent_color)

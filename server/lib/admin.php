@@ -29,6 +29,9 @@ function nl_admin_dispatch(string $route): never
         'admin/upload'         => admin_upload(),
         'admin/github/import'  => nl_json(['ok' => true] + nl_gh_import((int)(nl_input()['project_id'] ?? 0))),
         'admin/github/check'   => admin_github_check(),
+        'admin/folder/import'  => admin_folder_import(),
+        'admin/watch/run'      => nl_json(['ok' => true, 'new' => nl_watch_tick(true, (int)(nl_input()['project_id'] ?? 0) ?: null)]),
+        'admin/release/schedule' => admin_release_schedule(),
         default                => nl_fail('Route admin inconnue', 404),
     };
 }
@@ -94,12 +97,22 @@ function admin_projects(): never
             $r['id'] = (int)$r['id'];
             $r['published'] = (bool)$r['published'];
             $r['mandatory'] = (bool)$r['mandatory'];
+            $r['lock_login'] = (bool)($r['lock_login'] ?? 0);
+            $r['lock_coins'] = (int)($r['lock_coins'] ?? 0);
+            $r['available_local'] = nl_utc_to_paris_input($r['available_at'] ?? null);
+            $r['state'] = !$r['published'] ? 'pending' : (nl_release_available($r) ? 'live' : 'scheduled');
+            $st = nl_db()->prepare('SELECT COUNT(*) FROM nl_purchases WHERE release_id = ?');
+            $st->execute([$r['id']]);
+            $r['purchases'] = (int)$st->fetchColumn();
             foreach ($r['assets'] as &$a) { $a['id'] = (int)$a['id']; $a['size'] = $a['size'] !== null ? (int)$a['size'] : null; }
             unset($a);
         }
         unset($r);
         $p['id'] = (int)$p['id'];
         $p['sort_order'] = (int)$p['sort_order'];
+        $p['default_lock_login'] = (bool)($p['default_lock_login'] ?? 0);
+        $p['default_lock_coins'] = (int)($p['default_lock_coins'] ?? 0);
+        $p['pending'] = count(array_filter($p['releases'], fn($r) => $r['state'] === 'pending'));
         $p['icon_abs'] = nl_abs_url($p['icon_url']);
         $out[] = $p;
     }
@@ -142,7 +155,13 @@ function admin_project_save(): never
         'status_check_url' => $status,
         'tags'             => implode(',', array_filter(array_map('trim', explode(',', nl_str($in, 'tags', 255) ?? '')))),
         'sort_order'       => (int)($in['sort_order'] ?? 100),
+        'watch_mode'       => nl_enum($in, 'watch_mode', ['off','ask','publish'], 'off'),
+        'files_dir'        => nl_files_dir_input($in),
+        'files_url'        => nl_url($in, 'files_url'),
+        'default_lock_login' => nl_bool($in, 'default_lock_login'),
+        'default_lock_coins' => max(0, min(1_000_000, (int)($in['default_lock_coins'] ?? 0))),
     ];
+    if ($data['files_dir'] !== null && $data['files_url'] === null) { nl_fail("Indique aussi l'adresse publique du dossier (files_url)"); }
 
     $db = nl_db();
     $cols = array_keys($data);
@@ -183,7 +202,13 @@ function admin_release_save(): never
         'published' => nl_bool($in, 'published'),
         'mandatory' => nl_bool($in, 'mandatory'),
         'pub_date'  => gmdate('Y-m-d H:i:s', $pubTs),
+        'label'     => nl_str($in, 'label', 40),
+        'lock_login' => nl_bool($in, 'lock_login'),
+        'lock_coins' => max(0, min(1_000_000, (int)($in['lock_coins'] ?? 0))),
+        // Saisie à l'heure de Paris ; vide ou passée = disponible tout de suite
+        'available_at' => nl_paris_to_utc(nl_str($in, 'available_local', 25)),
     ];
+    if ($data['available_at'] !== null) { $data['pub_date'] = $data['available_at']; }
     $db = nl_db();
     try {
         if ($id > 0) {
@@ -329,4 +354,50 @@ function admin_ci_release(): never
         throw $e;
     }
     nl_json(['ok' => true, 'release_id' => $rid, 'slug' => $slug, 'version' => $version, 'assets' => count($assetData)]);
+}
+
+/** Dossier du serveur contenant les fichiers d'un projet (ex. /home/didikaz/www2/PandorPacks) */
+function nl_files_dir_input(array $in): ?string
+{
+    $v = nl_str($in, 'files_dir', 255);
+    if ($v === null) { return null; }
+    $real = realpath($v);
+    if (!$real || !is_dir($real)) { nl_fail("Dossier introuvable sur le serveur : $v"); }
+    $roots = (array)(nl_config()['files_roots'] ?? [dirname(__DIR__, 3)]);
+    foreach ($roots as $root) {
+        $r = realpath((string)$root);
+        if ($r && ($real === $r || str_starts_with($real, $r . '/'))) {
+            if (str_starts_with($real . '/', dirname(__DIR__) . '/')) { nl_fail('Choisis un dossier hors du launcher'); }
+            return $real;
+        }
+    }
+    nl_fail('Dossier hors des emplacements autorisés (config.php → files_roots)');
+}
+
+/** Importe (ou met à jour) toutes les versions trouvées dans le dossier du projet */
+function admin_folder_import(): never
+{
+    $id = (int)(nl_input()['project_id'] ?? 0);
+    $st = nl_db()->prepare('SELECT * FROM nl_projects WHERE id = ?');
+    $st->execute([$id]);
+    $p = $st->fetch() ?: nl_fail('Projet introuvable', 404);
+    if (empty($p['files_dir'])) { nl_fail("Renseigne d'abord le dossier du serveur du projet"); }
+    $r = nl_folder_import($p, false);
+    unset($r['new']);
+    nl_json(['ok' => true] + $r);
+}
+
+/** Publier maintenant ou programmer une version (when = now | at, local = date à l'heure de Paris) */
+function admin_release_schedule(): never
+{
+    $in = nl_input();
+    $id = (int)($in['id'] ?? 0);
+    if (($in['when'] ?? 'now') === 'at') {
+        $at = nl_paris_to_utc(nl_str($in, 'local', 25));
+        if ($at === null) { nl_fail('Choisis une date dans le futur'); }
+    } else { $at = null; }
+    nl_release_schedule($id, $at,
+        array_key_exists('lock_login', $in) ? nl_bool($in, 'lock_login') : null,
+        array_key_exists('lock_coins', $in) ? (int)$in['lock_coins'] : null);
+    nl_json(['ok' => true]);
 }

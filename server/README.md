@@ -51,11 +51,31 @@ Routes disponibles :
 
 `ci/release` crée ou met à jour une version et ses fichiers en un seul appel. Voir `ci/publish-release.yml` : copié dans un dépôt GitHub, ce workflow publie automatiquement chaque release GitHub dans le catalogue. Une release marquée « pre-release » part dans le canal bêta.
 
+## Comptes, verrous et sorties programmées
+
+- **Connexion du launcher** : `auth/start` donne un code, l'utilisateur le valide sur `connect.php` (connecté à NounoursAccount), puis `auth/poll` renvoie un jeton `nlu_…` propre à cet appareil.
+- **Verrous par version** (panel → Versions) : « Compte requis » et/ou un prix en pièces. Un achat est définitif pour le compte (`nl_purchases`, journal `na_coin_log`). Les admins passent sans payer.
+- **Sortie programmée** : la version est visible grisée avec un compte à rebours (`upcoming` dans le catalogue) jusqu'à l'heure prévue (saisie à l'heure de Paris, stockée en UTC).
+- **Liens personnels** : un fichier verrouillé, local ou d'un dépôt privé passe par `api.php?r=asset&id=…&u&e&s` (signé, valable jusqu'au lendemain).
+
+## Nouvelles versions détectées
+
+Panel → fiche projet → « Nouvelles versions & accès » :
+
+- **Surveillance** : `Me demander par mail` (la version reste en attente ; le mail propose « Publier maintenant » ou « Programmer la sortie » via `action.php`, lien signé 30 jours) ou `Publier tout de suite`.
+- **Sources** : les releases du dépôt GitHub du projet, et/ou un **dossier du serveur** (`files_dir` + son adresse publique `files_url`, ex. `/home/didikaz/www2/PandorPacks` → `https://nsdkplus.fr/PandorPacks`). Noms reconnus : `NomV2.91a-1.21.zip`, ou un sous-dossier par version.
+- **Premier passage** : les versions déjà présentes forment le catalogue de départ (publiées sans mail).
+- **Fréquence** : au plus toutes les 15 min pendant les visites de l'API ; pour plus de régularité, tâche planifiée OVH sur `launcher/cron.php` (toutes les heures).
+- **Destinataires** : `admin_emails` dans `config.php`, sinon les comptes admin NounoursAccount.
+
+Autres sites du réseau : `lib/public.php` fournit `nl_pub_project()` et `nl_pub_handle_unlock()` (utilisé par nsdkplus.fr/?page=pandorpacks).
+`extras/PandorPacks.htaccess` bloque l'accès web direct aux .zip une fois les verrous en place.
+
 ## Plateformes et types de fichiers
 
-**Plateformes :** `windows-x86_64`, `windows-aarch64`, `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`, `linux-aarch64`, `android`, `ios`, `web`, `server`.
+**Plateformes :** `windows-x86_64`, `windows-aarch64`, `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`, `linux-aarch64`, `android`, `ios`, `web`, `server`, `any` (fichier commun à tous les systèmes).
 
-**Types de fichiers :** `installer`, `updater`, `portable`, `msi`, `apk`, `dmg`, `appimage`, `deb`, `rpm`, `jar`, `zip`, `store`, `web`.
+**Types de fichiers :** `installer`, `updater`, `portable`, `msi`, `apk`, `dmg`, `appimage`, `deb`, `rpm`, `jar`, `zip`, `resourcepack`, `file`, `store`, `web`.
 
 Le type `updater` est réservé aux artefacts signés de Tauri, c'est-à-dire ceux qui ont une signature minisign.
 

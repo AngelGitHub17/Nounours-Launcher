@@ -4,6 +4,12 @@ Pour publier une version : `npm run version:set X.Y.Z`, ajoute une section `## X
 
 ## 0.3.0
 
+- Compte NounoursAccount dans le launcher (bouton en bas de la barre latérale) : connexion par code, solde de pièces
+- Versions verrouillées : réservées aux comptes, ou à débloquer une fois pour toutes avec des pièces
+- Sorties programmées : la version apparaît grisée avec un compte à rebours, puis se débloque toute seule à l'heure prévue
+- Chaque version de l'historique a son bouton (installer une ancienne version, débloquer, télécharger)
+- Nouveau type « Packs de ressources » : « Ajouter à Minecraft » copie le pack dans le dossier resourcepacks du jeu (et retire l'ancienne version)
+- Les fichiers relayés par le serveur (dépôts privés, fichiers verrouillés) gardent leur vrai nom à l'installation
 - Première version Android : l'APK est disponible sur la page de téléchargement
 - Interface pour téléphone : barre d'onglets en bas, cartes sur deux colonnes, fiches en plein écran, encoche et barre gestuelle respectées
 - Sur Android, « Installer » télécharge l'APK de l'appli ; le launcher signale ses propres mises à jour

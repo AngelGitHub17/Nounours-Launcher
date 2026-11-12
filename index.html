@@ -17,6 +17,7 @@
       <nav id="nav"></nav>
       <div class="side-foot">
         <div id="netState" class="net"></div>
+        <button class="navbtn account" id="accountBtn" title="Se connecter avec NounoursAccount"><span class="ic">👤</span><span class="lbl">Se connecter</span></button>
         <button class="navbtn" id="openSettings" title="Réglages"><span class="ic">⚙</span><span class="lbl">Réglages</span></button>
         <button class="navbtn" id="sideToggle" title="Réduire / agrandir la barre"><span class="ic">«</span><span class="lbl">Réduire la barre</span></button>
       </div>
@@ -44,6 +45,14 @@
 
   <!-- Fiche projet -->
   <div id="detail" class="overlay hidden"><div class="sheet" id="sheet"></div></div>
+
+  <!-- Compte NounoursAccount -->
+  <div id="account" class="overlay hidden">
+    <div class="sheet small">
+      <div class="sheet-head"><h2>Compte NounoursAccount</h2><button class="iconbtn" data-close>✕</button></div>
+      <div class="sheet-body" id="accountBody"></div>
+    </div>
+  </div>
 
   <!-- Réglages -->
   <div id="settings" class="overlay hidden">

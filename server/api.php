@@ -11,7 +11,9 @@
  *   ?r=launcher/update&target={{target}}&arch={{arch}}&current={{current_version}}[&channel=...]  (format Tauri)
  *   ?r=status
  *   ?r=meta
- *   ?r=asset&id=N                    → téléchargement relais (fichiers de dépôts GitHub privés)
+ *   ?r=asset&id=N[&u&e&s]            → téléchargement relais (fichiers protégés, dépôts privés, dossiers du serveur)
+ *   ?r=auth/start, auth/poll (POST)  → connexion du launcher avec un code ; ?r=auth/me ; auth/logout (POST)
+ *   ?r=unlock (POST, connecté)       → débloquer une version avec des pièces
  *   ?r=download[&slug=xxx][&platform=auto|windows-x86_64|…][&kind=…][&channel=…]  → redirige vers le bon installeur
  * Admin (POST, Authorization: Bearer <jeton>) :
  *   ?r=admin/projects, admin/project/save, admin/project/delete,
@@ -32,6 +34,14 @@ set_error_handler(function (int $no, string $str, string $file, int $line): bool
 $route = trim((string)($_GET['r'] ?? ''), '/');
 $isAdmin = str_starts_with($route, 'admin/') || str_starts_with($route, 'ci/');
 nl_cors($isAdmin);
+
+// Surveillance des nouvelles versions : après la réponse, au plus toutes les 15 min
+if (!$isAdmin && $route !== 'asset' && $route !== 'download') {
+    register_shutdown_function(function (): void {
+        if (function_exists('fastcgi_finish_request')) { @fastcgi_finish_request(); }
+        try { nl_watch_tick(); } catch (Throwable $e) { nl_watch_log('tick : ' . $e->getMessage()); }
+    });
+}
 
 try {
     nl_ensure_schema();
@@ -67,6 +77,12 @@ try {
 
         case 'asset':
             route_asset();
+
+        case 'auth/start':  route_auth_start();
+        case 'auth/poll':   route_auth_poll();
+        case 'auth/me':     route_auth_me();
+        case 'auth/logout': route_auth_logout();
+        case 'unlock':      route_unlock();
 
         case 'status':
             require __DIR__ . '/lib/status.php';
@@ -119,7 +135,7 @@ function route_catalog(): never
     foreach ($projects as $p) {
         $f = nl_fmt_project($p, $channel, $platform);
         // Avec un filtre de plateforme : on garde ce qui est utilisable dessus (ou un site web)
-        if ($platform !== null && !in_array($platform, $f['platforms'], true) && !in_array('web', $f['platforms'], true)) {
+        if ($platform !== null && !in_array($platform, $f['platforms'], true) && !in_array('web', $f['platforms'], true) && !in_array('any', $f['platforms'], true)) {
             continue;
         }
         $list[] = $f;
@@ -162,7 +178,8 @@ function route_update_check(): never
     if (!$l || nl_vcmp($l['release']['version'], $current) <= 0) {
         nl_json(['update' => false, 'current' => $current, 'latest' => $l['release']['version'] ?? null]);
     }
-    $rel = nl_fmt_release($l['release'], $platform);
+    $project = reset($projects);
+    $rel = nl_fmt_release($l['release'], $platform, $project);
     nl_json([
         'update'    => true,
         'current'   => $current,
@@ -171,7 +188,7 @@ function route_update_check(): never
         'pub_date'  => $rel['pub_date'],
         'notes'     => $rel['notes'],
         'mandatory' => $rel['mandatory'],
-        'asset'     => nl_fmt_asset($l['asset']),
+        'asset'     => nl_fmt_asset($l['asset'], $l['release'], $project),
     ]);
 }
 
@@ -237,6 +254,11 @@ function route_download(): never
         nl_db()->prepare("INSERT INTO nl_settings (k, v) VALUES (?, '1') ON DUPLICATE KEY UPDATE v = CAST(v AS UNSIGNED) + 1")
                ->execute(['dl:' . $slug]);
     } catch (Throwable) { /* le compteur ne doit jamais bloquer un téléchargement */ }
-    header('Location: ' . nl_public_asset_url($best['asset']), true, 302);
+    $url = nl_asset_url_for($best['asset'], $best['release'], reset($projects));
+    if ($url === null) { // version verrouillée : on renvoie vers la page pour se connecter / débloquer
+        header('Location: ' . (rtrim((string)$cfg['base_url'], '/') . '/'), true, 302);
+        exit;
+    }
+    header('Location: ' . $url, true, 302);
     exit;
 }

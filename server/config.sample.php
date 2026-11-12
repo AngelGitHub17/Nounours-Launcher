@@ -32,6 +32,14 @@ return [
     // Dépôt GitHub du launcher (lien « Toutes les versions » de la page de téléchargement)
     'github_url' => 'https://github.com/AngelGitHub17/Nounours-Launcher',
 
+    // --- Nouvelles versions détectées (GitHub, dossiers du serveur) ---
+    // Destinataires du mail « Publier / Programmer » (vide = comptes admin NounoursAccount)
+    'admin_emails' => [],
+    // Dossiers du serveur qu'un projet peut utiliser comme source de fichiers (ex. PandorPacks)
+    'files_roots' => ['/home/didikaz'],
+    // Clé pour appeler cron.php en HTTP (tâche planifiée OVH : inutile, elle passe en ligne de commande)
+    'cron_key' => '',
+
     // Facultatif : empreintes SHA-256 de jetons de secours (le panel se fait avec NounoursAccount,
     // et le jeton CI se génère dans le panel → ⚙ Réglages). Laisser vide en temps normal.
     'admin_token_hashes' => [],

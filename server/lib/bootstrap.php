@@ -9,7 +9,7 @@ date_default_timezone_set('UTC'); // dates manipulées et stockées en UTC (le l
 
 const NL_API_VERSION = 1;
 /** Version des fichiers serveur : permet de vérifier que tout a bien été envoyé sur OVH (?r=meta) */
-const NL_SERVER_VERSION = '2026.11.12-pkg-changelog';
+const NL_SERVER_VERSION = '2026.11.12-v4-verrous';
 
 /** Plateformes reconnues par le catalogue */
 const NL_PLATFORMS = [
@@ -17,9 +17,10 @@ const NL_PLATFORMS = [
     'darwin-aarch64', 'darwin-x86_64',
     'linux-x86_64',   'linux-aarch64',
     'android', 'ios', 'web', 'server',
+    'any',            // tous systèmes (pack de ressources, document…)
 ];
-const NL_KINDS = ['installer','updater','portable','msi','apk','dmg','pkg','appimage','deb','rpm','jar','zip','store','web'];
-const NL_TYPES = ['site','app','plugin','service','bot','tool','launcher'];
+const NL_KINDS = ['installer','updater','portable','msi','apk','dmg','pkg','appimage','deb','rpm','jar','zip','resourcepack','file','store','web'];
+const NL_TYPES = ['site','app','plugin','pack','service','bot','tool','launcher'];
 const NL_STATUSES = ['online','beta','dev','archived'];
 const NL_VISIBILITIES = ['public','members','private'];
 
@@ -213,9 +214,9 @@ function nl_log_error(string $route, string $detail): string
 function nl_viewer_level(): int
 {
     if (nl_is_token_admin()) { return 2; }
-    if (!nl_has_credentials() || !nl_na_load()) { return 0; }
-    if (auth_is_admin()) { return 2; }
-    return auth_is_logged() ? 1 : 0;
+    $u = nl_user(); // jeton du launcher ou session NounoursAccount
+    if (!$u) { return 0; }
+    return $u['role'] >= 2 ? 2 : 1;
 }
 
 // ---------- Réglages stockés en base ----------
@@ -242,9 +243,9 @@ function nl_setting_set(string $key, ?string $value): void
 function nl_ensure_schema(): void
 {
     $dir = dirname(__DIR__) . '/cache';
-    if (is_file("$dir/.schema_v3")) { return; }
+    if (is_file("$dir/.schema_v4")) { return; }
     $flag = "$dir/.schema_v1";
-    if (is_file($flag)) { nl_migrate_v2(); nl_migrate_v3(); return; }
+    if (is_file($flag)) { nl_migrate_v2(); nl_migrate_v3(); nl_migrate_v4(); return; }
     $db = nl_db();
     $sql = (string)file_get_contents(dirname(__DIR__) . '/schema.sql');
     $sql = preg_replace('/^\s*--.*$/m', '', $sql) ?? '';
@@ -257,6 +258,39 @@ function nl_ensure_schema(): void
     @file_put_contents($flag, gmdate('c'));
     nl_migrate_v2();
     nl_migrate_v3();
+    nl_migrate_v4();
+}
+
+/** v4 : verrous (connexion, pièces), sorties programmées, surveillance, comptes du launcher */
+function nl_migrate_v4(): void
+{
+    $db = nl_db();
+    $add = [
+        ['nl_projects', 'files_dir', "VARCHAR(255) NULL AFTER github_repo"],
+        ['nl_projects', 'files_url', "VARCHAR(255) NULL AFTER files_dir"],
+        ['nl_projects', 'watch_mode', "ENUM('off','ask','publish') NOT NULL DEFAULT 'off' AFTER files_url"],
+        ['nl_projects', 'default_lock_login', "TINYINT(1) NOT NULL DEFAULT 0 AFTER watch_mode"],
+        ['nl_projects', 'default_lock_coins', "INT UNSIGNED NOT NULL DEFAULT 0 AFTER default_lock_login"],
+        ['nl_releases', 'label', "VARCHAR(40) NULL AFTER version"],
+        ['nl_releases', 'available_at', "DATETIME NULL AFTER pub_date"],
+        ['nl_releases', 'lock_login', "TINYINT(1) NOT NULL DEFAULT 0 AFTER available_at"],
+        ['nl_releases', 'lock_coins', "INT UNSIGNED NOT NULL DEFAULT 0 AFTER lock_login"],
+        ['nl_releases', 'source', "VARCHAR(12) NULL AFTER lock_coins"],
+        ['nl_releases', 'detected_at', "DATETIME NULL AFTER source"],
+        ['nl_releases', 'notified', "TINYINT(1) NOT NULL DEFAULT 0 AFTER detected_at"],
+    ];
+    foreach ($add as [$t, $c, $def]) {
+        if (!nl_has_column($t, $c)) { $db->exec("ALTER TABLE $t ADD COLUMN $c $def"); }
+    }
+    // Nouveau type de projet : packs de ressources (PandorPacks…)
+    $db->exec("ALTER TABLE nl_projects MODIFY type ENUM('site','app','plugin','pack','service','bot','tool','launcher') NOT NULL DEFAULT 'app'");
+    // Nouvelles tables (CREATE TABLE IF NOT EXISTS du schéma)
+    $sql = (string)file_get_contents(dirname(__DIR__) . '/schema.sql');
+    $sql = preg_replace('/^\s*--.*$/m', '', $sql) ?? '';
+    foreach (array_filter(array_map('trim', explode(';', $sql))) as $stmt) {
+        if (preg_match('/CREATE TABLE IF NOT EXISTS (nl_purchases|nl_tokens|nl_auth_codes)\b/', $stmt)) { $db->exec($stmt); }
+    }
+    @file_put_contents(dirname(__DIR__) . '/cache/.schema_v4', gmdate('c'));
 }
 
 function nl_has_column(string $table, string $column): bool
@@ -348,3 +382,5 @@ function nl_slugify(string $s): string
     $s = preg_replace('/[^a-z0-9]+/', '-', $s) ?? '';
     return trim($s, '-');
 }
+
+require_once __DIR__ . '/users.php';

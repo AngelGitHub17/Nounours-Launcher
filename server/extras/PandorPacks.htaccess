@@ -1,0 +1,6 @@
+# Les PandorPacks se téléchargent via la page https://nsdkplus.fr/?page=pandorpacks ou NounoursLauncher
+# (liens personnels : versions verrouillées par compte, pièces ou date de sortie).
+# Les fichiers restent lus directement par le serveur (PHP), seul l'accès web direct est bloqué.
+<FilesMatch "\.(zip|mcpack)$">
+    Require all denied
+</FilesMatch>
