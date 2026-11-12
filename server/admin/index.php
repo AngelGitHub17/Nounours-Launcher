@@ -5,15 +5,32 @@
  */
 declare(strict_types=1);
 require dirname(__DIR__) . '/lib/bootstrap.php';
+require dirname(__DIR__) . '/lib/catalog.php';
 while (ob_get_level() > 0) { ob_end_clean(); }
 
 if (!nl_na_load()) {
     http_response_code(500);
     exit('shared/auth.php introuvable — vérifie « shared_auth » dans launcher/config.php');
 }
-auth_require_login(); // pas connecté → page de connexion NounoursAccount, puis retour ici
+// Ouverture depuis le launcher : lien à usage unique ?t=uid.exp.nonce.sig → session du panel (12 h)
+if (isset($_GET['t']) && preg_match('/^(\d+)\.(\d+)\.([0-9a-f]{16})\.([0-9a-f]{32})$/', (string)$_GET['t'], $m)) {
+    nl_ensure_schema();
+    [, $tu, $te, $tn, $ts] = $m;
+    $ok = (int)$te >= time() && hash_equals(nl_sign("panel|$tu|$te|$tn"), $ts) && nl_setting('panel_nonce:' . $tn) !== null;
+    nl_setting_set('panel_nonce:' . $tn, null); // usage unique
+    $tuser = $ok ? nl_user_by_id((int)$tu) : null;
+    if ($tuser && $tuser['role'] >= 2 && session_status() === PHP_SESSION_ACTIVE) {
+        session_regenerate_id(true);
+        $_SESSION['nl_panel_uid'] = $tuser['id'];
+        $_SESSION['nl_panel_exp'] = time() + 12 * 3600;
+    }
+    header('Location: ./', true, 303); // retire le lien de la barre d'adresse (le #projet est conservé)
+    exit;
+}
+$panelUser = nl_panel_admin();
+if (!$panelUser) { auth_require_login(); } // pas connecté → page de connexion NounoursAccount, puis retour ici
 
-if (!auth_is_admin()) {
+if (!$panelUser && !auth_is_admin()) {
     http_response_code(403);
     header('Content-Type: text/html; charset=utf-8');
     exit('<!doctype html><meta charset="utf-8"><title>Accès refusé</title><body style="font:16px system-ui;padding:40px">'
@@ -23,7 +40,7 @@ if (!auth_is_admin()) {
 
 nl_ensure_schema();
 $csrf = nl_csrf_token();
-$me = ['name' => auth_display_name(), 'avatar' => auth_avatar_src()];
+$me = $panelUser ? ['name' => $panelUser['name'], 'avatar' => $panelUser['avatar']] : ['name' => auth_display_name(), 'avatar' => auth_avatar_src()];
 header('Content-Type: text/html; charset=utf-8');
 header('X-Frame-Options: DENY');
 header('Cache-Control: no-store');
@@ -575,7 +592,12 @@ $('#relForm').onsubmit = async e => {
   catch (err) { toast(err.message, true); }
 };
 
-load();
+// Ouvert depuis le launcher sur un projet précis : #projet=slug
+load().then(() => {
+  const m = location.hash.match(/projet=([a-z0-9-]+)/);
+  const p = m && projects.find(x => x.slug === m[1]);
+  if (p) openProject(p);
+});
 </script>
 </body>
 </html>

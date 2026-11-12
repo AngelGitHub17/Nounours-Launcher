@@ -36,9 +36,10 @@ $isAdmin = str_starts_with($route, 'admin/') || str_starts_with($route, 'ci/');
 nl_cors($isAdmin);
 
 // Surveillance des nouvelles versions : après la réponse, au plus toutes les 15 min
-if (!$isAdmin && $route !== 'asset' && $route !== 'download') {
+// (seulement si PHP peut renvoyer la réponse avant : sinon le launcher attendrait GitHub → cron.php)
+if (!$isAdmin && $route !== 'asset' && $route !== 'download' && function_exists('fastcgi_finish_request')) {
     register_shutdown_function(function (): void {
-        if (function_exists('fastcgi_finish_request')) { @fastcgi_finish_request(); }
+        @fastcgi_finish_request();
         try { nl_watch_tick(); } catch (Throwable $e) { nl_watch_log('tick : ' . $e->getMessage()); }
     });
 }
@@ -143,12 +144,14 @@ function route_catalog(): never
 
     $payload = ['api_version' => NL_API_VERSION, 'channel' => $channel, 'platform' => $platform, 'projects' => $list];
     $etag = '"' . md5(json_encode($payload) . $level) . '"';
-    if (trim($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === $etag) {
-        while (ob_get_level() > 0) { ob_end_clean(); }
-        header("ETag: $etag");
-        http_response_code(304);
-        exit;
+    // Pas de « 304 Not Modified » : Apache (OVH) y retire les en-têtes CORS, et le launcher
+    // croyait alors le serveur hors ligne. Réponse 200 minuscule à la place.
+    // (les launchers ≤ 0.2 envoient If-None-Match : ils reçoivent simplement le catalogue complet)
+    $sent = trim((string)($_GET['etag'] ?? ''));
+    if ($sent !== '' && $sent === $etag) {
+        nl_json(['not_modified' => true, 'etag' => $etag], 200, ['ETag' => $etag, 'Cache-Control' => 'no-cache']);
     }
+    $payload['etag'] = $etag;
     $payload['generated_at'] = gmdate('c');
     nl_json($payload, 200, ['ETag' => $etag, 'Cache-Control' => 'no-cache']);
 }

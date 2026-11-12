@@ -9,7 +9,7 @@ date_default_timezone_set('UTC'); // dates manipulées et stockées en UTC (le l
 
 const NL_API_VERSION = 1;
 /** Version des fichiers serveur : permet de vérifier que tout a bien été envoyé sur OVH (?r=meta) */
-const NL_SERVER_VERSION = '2026.11.12-v4-verrous';
+const NL_SERVER_VERSION = '2026.11.12-v5-admin';
 
 /** Plateformes reconnues par le catalogue */
 const NL_PLATFORMS = [
@@ -155,8 +155,27 @@ function nl_is_token_admin(): bool
 
 function nl_is_admin(): bool
 {
-    if (nl_is_token_admin()) { return true; }
+    if (nl_is_token_admin() || nl_launcher_admin() || nl_panel_admin()) { return true; }
     return nl_has_credentials() && nl_na_load() && auth_is_admin();
+}
+
+/** Admin connecté via le launcher (jeton nlu_… d'un compte NounoursAccount de rôle ≥ 2) */
+function nl_launcher_admin(): bool
+{
+    $t = nl_bearer();
+    if ($t === null || !str_starts_with($t, NL_TOKEN_PREFIX)) { return false; }
+    $u = nl_user();
+    return $u !== null && $u['role'] >= 2;
+}
+
+/** Panel ouvert depuis le launcher (lien à usage unique → session du panel) */
+function nl_panel_admin(): ?array
+{
+    if (!nl_has_credentials() || !nl_na_load() || session_status() !== PHP_SESSION_ACTIVE) { return null; }
+    $uid = (int)($_SESSION['nl_panel_uid'] ?? 0);
+    if ($uid <= 0 || (int)($_SESSION['nl_panel_exp'] ?? 0) < time()) { return null; }
+    $u = nl_user_by_id($uid);
+    return $u && $u['role'] >= 2 ? $u : null;
 }
 
 /**
@@ -166,10 +185,13 @@ function nl_is_admin(): bool
  */
 function nl_require_admin(): void
 {
-    if (nl_is_token_admin()) { $GLOBALS['NL_TRUSTED'] = true; return; }
+    if (nl_is_token_admin() || nl_launcher_admin()) { $GLOBALS['NL_TRUSTED'] = true; return; }
+    $t = nl_bearer();
+    if ($t !== null && str_starts_with($t, NL_TOKEN_PREFIX) && nl_user()) { nl_fail('Réservé aux administrateurs', 403); }
     if (!nl_na_load()) { nl_fail('shared/auth.php introuvable (voir shared_auth dans config.php)', 500); }
-    if (!auth_is_logged()) { nl_fail('Connexion NounoursAccount requise', 401); }
-    if (!auth_is_admin()) { nl_fail('Réservé aux administrateurs', 403); }
+    $panel = nl_panel_admin() !== null;
+    if (!$panel && !auth_is_logged()) { nl_fail('Connexion NounoursAccount requise', 401); }
+    if (!$panel && !auth_is_admin()) { nl_fail('Réservé aux administrateurs', 403); }
     $viaHeader = preg_match('/^Bearer\s/i', (string)($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
     if (!$viaHeader) {
         $sent = (string)($_SERVER['HTTP_X_NL_CSRF'] ?? '');
@@ -324,11 +346,13 @@ function nl_migrate_v2(): void
 function nl_cors(bool $adminRoute): void
 {
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-    if (!$adminRoute) {
-        header('Access-Control-Allow-Origin: *');
-    } elseif ($origin !== '' && in_array($origin, nl_config()['admin_origins'] ?? [], true)) {
+    if ($adminRoute && $origin !== '' && in_array($origin, nl_config()['admin_origins'] ?? [], true)) {
         header("Access-Control-Allow-Origin: $origin");
         header('Vary: Origin');
+    } else {
+        // « * » n'autorise jamais l'envoi des cookies : les routes admin restent protégées
+        // (jeton Bearer du launcher, ou cookie de session + en-tête CSRF depuis le panel lui-même)
+        header('Access-Control-Allow-Origin: *');
     }
     header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
     header('Access-Control-Allow-Headers: Content-Type, Authorization, X-NL-Token, X-NL-CSRF, X-NL-Channel, If-None-Match');

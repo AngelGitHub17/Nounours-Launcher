@@ -20,7 +20,7 @@ export const auth = {
   set token(v) { if (v) LS.set('nl.token', v); else LS.del('nl.token'); },
 };
 
-async function getJson(route, params = {}, { etag, timeout = 10000, method = 'GET', body } = {}) {
+async function getJson(route, params = {}, { timeout = 15000, method = 'GET', body } = {}) {
   const url = new URL(apiUrl());
   url.searchParams.set('r', route);
   for (const [k, v] of Object.entries(params)) if (v != null && v !== '') url.searchParams.set(k, v);
@@ -28,21 +28,20 @@ async function getJson(route, params = {}, { etag, timeout = 10000, method = 'GE
   const t = setTimeout(() => ctrl.abort(), timeout);
   try {
     const headers = {};
-    if (etag) headers['If-None-Match'] = etag;
     if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const res = await fetch(url, { method, headers, signal: ctrl.signal, cache: 'no-store', body: body !== undefined ? JSON.stringify(body) : undefined });
-    if (res.status === 401 && auth.token && route !== 'auth/logout') {
+    if (res.status === 401 && auth.token && route !== 'auth/logout' && !route.startsWith('admin/')) {
       // Jeton révoqué ou expiré côté serveur : on se considère déconnecté
       auth.token = null;
       window.dispatchEvent(new CustomEvent('nl-auth-lost'));
     }
-    if (res.status === 304) return { notModified: true };
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.error) { const err = new Error(data.error || `Erreur ${res.status}`); err.status = res.status; err.data = data; throw err; }
     return { data, etag: res.headers.get('ETag') };
   } catch (e) {
-    if (e.name === 'AbortError') throw new Error('Le serveur ne répond pas');
+    if (e.name === 'AbortError') { const err = new Error('Le serveur ne répond pas'); err.network = true; throw err; }
+    if (e instanceof TypeError) e.network = true; // réseau coupé, DNS, CORS…
     throw e;
   } finally {
     clearTimeout(t);
@@ -58,13 +57,21 @@ export async function loadCatalog(platform, channel) {
   const key = `nl.catalog.${platform}.${channel}.${auth.token ? auth.token.slice(-8) : 'anon'}`;
   const cached = LS.get(key);
   try {
-    const r = await getJson('catalog', { platform, channel }, { etag: cached?.etag });
-    if (r.notModified && cached) {
+    // L'empreinte part en paramètre (pas en If-None-Match) : le serveur répond toujours 200,
+    // car les réponses 304 d'OVH perdent les en-têtes CORS et passaient pour une coupure.
+    let r;
+    try { r = await getJson('catalog', { platform, channel, etag: cached?.etag }); }
+    catch (e) {
+      if (!e.network) throw e;
+      await new Promise(ok => setTimeout(ok, 2000)); // un seul nouvel essai (coupure Wi-Fi brève, serveur lent)
+      r = await getJson('catalog', { platform, channel, etag: cached?.etag }, { timeout: 25000 });
+    }
+    if (r.data.not_modified && cached) {
       cached.fetchedAt = Date.now();
       LS.set(key, cached);
       return { projects: cached.projects, offline: false, fetchedAt: cached.fetchedAt };
     }
-    const entry = { etag: r.etag, projects: r.data.projects || [], fetchedAt: Date.now() };
+    const entry = { etag: r.data.etag || r.etag, projects: r.data.projects || [], fetchedAt: Date.now() };
     LS.set(key, entry);
     return { projects: entry.projects, offline: false, fetchedAt: entry.fetchedAt };
   } catch (e) {
@@ -96,3 +103,6 @@ export async function authMe() { return (await getJson('auth/me')).data.user; }
 export async function authLogout() { try { await post('auth/logout'); } catch { /* déjà invalide */ } auth.token = null; }
 /** Débloque une version avec des pièces : { ok, coins } */
 export const unlockRelease = id => post('unlock', { release_id: id });
+
+/** Routes d'administration (compte admin NounoursAccount connecté au launcher) */
+export const adminCall = (route, body = {}) => post('admin/' + route, body);

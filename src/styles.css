@@ -359,3 +359,15 @@ h1 { margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -.01em; }
 #accountBody .code { font: 700 30px/1 ui-monospace, Consolas, monospace; letter-spacing: .14em; text-align: center; padding: 18px; margin: 12px 0; border-radius: 14px; border: 1px dashed var(--line); background: var(--glass); user-select: all; }
 #accountBody .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 #accountBody ul { padding-left: 20px; }
+
+/* ---------- Administration ---------- */
+.admin-view { max-width: 980px; }
+.adm-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.adm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 14px; margin-bottom: 8px; border-radius: 14px; border: 1px solid var(--line); background: var(--glass); }
+.adm-name { flex: 1 1 220px; display: flex; flex-direction: column; gap: 2px; }
+.adm-name small { font-size: 12px; }
+.adm-sched { display: inline-flex; gap: 6px; align-items: center; }
+.adm-sched input { height: 30px; padding: 0 8px; border-radius: 9px; border: 1px solid var(--line); background: var(--glass2); color: inherit; font: inherit; font-size: 13px; color-scheme: dark; }
+:root[data-theme="light"] .adm-sched input { color-scheme: light; }
+.small-empty { padding: 30px 20px; }
+.small-empty .big { font-size: 34px; }

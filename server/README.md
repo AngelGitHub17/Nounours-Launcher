@@ -39,6 +39,8 @@ Deux façons de s'authentifier :
 - **depuis le panel** : la session NounoursAccount (cookie), accompagnée de l'en-tête `X-NL-CSRF` ;
 - **depuis le launcher** : `Authorization: Bearer <na_bearer>` d'un compte administrateur.
 
+- **depuis le launcher, compte admin NounoursAccount** : le jeton `nlu_…` du launcher suffit (rôle ≥ 2). `admin/panel-link` donne un lien à usage unique (2 min) qui ouvre le panel sans repasser par la connexion (session du panel : 12 h) ; `admin/summary` liste les versions en attente.
+
 Routes disponibles :
 
 - `admin/projects`

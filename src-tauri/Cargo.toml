@@ -1,6 +1,6 @@
 [package]
 name = "nounours-launcher"
-version = "0.3.0"
+version = "0.3.1"
 description = "NounoursLauncher — le launcher de l'écosystème NounoursCorp"
 authors = ["DidiKaria"]
 edition = "2021"

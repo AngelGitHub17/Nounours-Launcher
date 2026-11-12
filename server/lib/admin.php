@@ -16,6 +16,8 @@ function nl_admin_dispatch(string $route): never
     nl_require_admin();
     match ($route) {
         'admin/whoami'         => nl_json(['ok' => true]),
+        'admin/panel-link'     => admin_panel_link(),
+        'admin/summary'        => admin_summary(),
         'admin/settings'       => admin_settings(),
         'admin/ci-token/new'   => admin_ci_token(true),
         'admin/ci-token/revoke'=> admin_ci_token(false),
@@ -400,4 +402,27 @@ function admin_release_schedule(): never
         array_key_exists('lock_login', $in) ? nl_bool($in, 'lock_login') : null,
         array_key_exists('lock_coins', $in) ? (int)$in['lock_coins'] : null);
     nl_json(['ok' => true]);
+}
+
+/** Lien à usage unique (2 min) qui ouvre le panel sans repasser par la connexion NounoursAccount */
+function admin_panel_link(): never
+{
+    $u = nl_user();
+    if (!$u) { nl_fail('Connexion du launcher requise', 401); }
+    $exp = time() + 120;
+    nl_db()->prepare("DELETE FROM nl_settings WHERE k LIKE 'panel\\_nonce:%' AND CAST(v AS UNSIGNED) < ?")->execute([time()]);
+    $nonce = bin2hex(random_bytes(8));
+    nl_setting_set('panel_nonce:' . $nonce, (string)$exp);
+    $sig = nl_sign("panel|{$u['id']}|$exp|$nonce");
+    $slug = preg_replace('/[^a-z0-9-]/', '', (string)(nl_input()['slug'] ?? ''));
+    nl_json(['url' => rtrim((string)nl_config()['base_url'], '/') . "/admin/?t={$u['id']}.$exp.$nonce.$sig" . ($slug ? "#projet=$slug" : '')]);
+}
+
+/** Ce que le launcher affiche à un admin : versions en attente de décision */
+function admin_summary(): never
+{
+    $rows = nl_db()->query("SELECT r.id, r.version, r.label, r.detected_at, p.slug, p.name FROM nl_releases r JOIN nl_projects p ON p.id = r.project_id
+                            WHERE r.published = 0 AND r.detected_at IS NOT NULL ORDER BY r.detected_at DESC LIMIT 20")->fetchAll();
+    nl_json(['pending' => array_map(fn($r) => ['id' => (int)$r['id'], 'slug' => $r['slug'], 'project' => $r['name'],
+        'name' => $r['label'] ?: 'v' . $r['version'], 'detected_at' => gmdate('c', strtotime($r['detected_at'] . ' UTC'))], $rows)]);
 }

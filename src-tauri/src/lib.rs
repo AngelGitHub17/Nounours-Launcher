@@ -28,6 +28,31 @@ fn platform_key() -> String {
     format!("{os}-{arch}")
 }
 
+/// Panel d'administration du catalogue dans une fenêtre du launcher (comptes admin NounoursAccount).
+/// La page est distante : elle n'a aucun accès aux commandes du launcher.
+#[cfg(desktop)]
+#[tauri::command]
+async fn open_admin_window(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let parsed: tauri::Url = url.parse().map_err(|_| "Adresse invalide".to_string())?;
+    let local = matches!(parsed.host_str(), Some("localhost") | Some("127.0.0.1"));
+    if parsed.scheme() != "https" && !local {
+        return Err("Le panel doit être en https".into());
+    }
+    if let Some(w) = app.get_webview_window("admin") {
+        w.navigate(parsed).map_err(|e| e.to_string())?;
+        let _ = w.unminimize();
+        let _ = w.show();
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    tauri::WebviewWindowBuilder::new(&app, "admin", tauri::WebviewUrl::External(parsed))
+        .title("NounoursLauncher — Administration")
+        .inner_size(1280.0, 860.0)
+        .min_inner_size(720.0, 500.0)
+        .build()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -70,6 +95,7 @@ pub fn run() {
         apps::install_app,
         apps::launch_app,
         apps::remove_app,
+        open_admin_window,
     ]);
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![platform_key]);

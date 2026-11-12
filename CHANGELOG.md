@@ -2,6 +2,14 @@
 
 Pour publier une version : `npm run version:set X.Y.Z`, ajoute une section `## X.Y.Z` en haut de cette liste, puis commit et push sur `main`.
 
+## 0.3.1
+
+- Fini les faux « Hors ligne » : le catalogue n'utilise plus les réponses « 304 » que l'hébergement privait de leurs en-têtes ; nouvel essai automatique au moindre raté, puis toutes les 30 secondes
+- Comptes admin NounoursAccount : rubrique « Administration » dans le launcher
+  - versions en attente : publier maintenant ou programmer la sortie en un clic
+  - « Chercher les nouvelles versions »
+  - le panel complet s'ouvre dans une fenêtre du launcher, déjà connecté ; bouton « 🛠 Gérer » sur chaque fiche
+
 ## 0.3.0
 
 - Compte NounoursAccount dans le launcher (bouton en bas de la barre latérale) : connexion par code, solde de pièces

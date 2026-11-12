@@ -1,5 +1,5 @@
 // NounoursLauncher — interface
-import { DEFAULT_API, LS, apiUrl, loadCatalog, loadStatus, loadProject, clearCache, auth, authStart, authPoll, authMe, authLogout, unlockRelease } from './api.js';
+import { DEFAULT_API, LS, apiUrl, loadCatalog, loadStatus, loadProject, clearCache, auth, authStart, authPoll, authMe, authLogout, unlockRelease, adminCall } from './api.js';
 import { esc, md } from './md.js';
 
 const isTauri = '__TAURI_INTERNALS__' in window;
@@ -62,7 +62,9 @@ const state = {
   user: auth.token ? LS.get('nl.user') : null, // compte NounoursAccount connecté
   releases: {},           // historique chargé par projet (fiche)
   login: null,            // connexion en cours : { code, url, poll, until, timer }
+  admin: { pending: [], loaded: false }, // compte admin : versions en attente de décision
 };
+const isAdmin = () => !!state.user?.admin;
 
 // Types de fichiers préférés pour installer, par système
 const PREFERRED_KINDS = {
@@ -135,6 +137,9 @@ async function refreshCatalog({ silent = false } = {}) {
   }
   state.loading = false;
   render();
+  // Hors ligne : nouvel essai dans 30 s (au lieu d'attendre la prochaine actualisation)
+  clearTimeout(state.retryTimer);
+  if (state.offline) state.retryTimer = setTimeout(() => refreshCatalog({ silent: true }), 30 * 1000);
 }
 
 async function refreshStatus() {
@@ -184,9 +189,10 @@ function renderNav() {
     ['fav', '★', 'Favoris', state.projects.filter(p => state.favs.has(p.slug)).length],
     ...(canInstall() ? [['mine', '📦', 'Mes applis', state.projects.filter(p => state.installed[p.slug]).length, pendingUpdates().length]] : []),
     ...Object.entries(TYPES).filter(([t]) => counts[t]).map(([t, v]) => [t, v.icon, v.label, counts[t]]),
+    ...(isAdmin() ? [['admin', '🛠', 'Administration', 0, state.admin.pending.length]] : []),
   ];
   $('#nav').innerHTML = items.map(([v, ic, label, n, upd]) =>
-    `<button class="navbtn ${state.view === v ? 'on' : ''}" data-view="${v}" title="${esc(label)}"><span class="ic">${ic}</span><span class="lbl">${esc(label)}</span>${upd ? `<span class="count upd" title="Mises à jour">${upd}↑</span>` : `<span class="count">${n}</span>`}</button>`
+    `<button class="navbtn ${state.view === v ? 'on' : ''}" data-view="${v}" title="${esc(label)}"><span class="ic">${ic}</span><span class="lbl">${esc(label)}</span>${v === 'admin' && !upd ? '' : upd ? (v === 'admin' ? `<span class="count upd" title="Versions en attente">${upd}</span>` : `<span class="count upd" title="Mises à jour">${upd}↑</span>`) : `<span class="count">${n}</span>`}</button>`
   ).join('');
 }
 
@@ -212,11 +218,12 @@ function renderNet() {
 
 function renderHeader() {
   const v = state.view;
-  $('#title').textContent = v === 'all' ? 'Tous les projets' : v === 'fav' ? 'Favoris' : v === 'mine' ? 'Mes applis' : TYPES[v]?.label ?? 'Projets';
+  $('#title').textContent = v === 'all' ? 'Tous les projets' : v === 'fav' ? 'Favoris' : v === 'mine' ? 'Mes applis' : v === 'admin' ? 'Administration' : TYPES[v]?.label ?? 'Projets';
   const n2 = pendingUpdates().length;
   $('#updateAll').classList.toggle('hidden', !n2);
   $('#updateAll').textContent = `Tout mettre à jour (${n2})`;
   const n = visibleProjects().length;
+  if (v === 'admin') { $('#subtitle').textContent = `Catalogue du launcher · ${state.user?.name || ''}`; return; }
   $('#subtitle').textContent = state.loading ? 'Chargement du catalogue…' : `${n} projet${n > 1 ? 's' : ''} · ${PLATFORM_NAMES[state.platform] || state.platform}`;
 }
 
@@ -414,6 +421,11 @@ function renderGrid() {
     box.innerHTML = `<div class="grid">${'<div class="card skeleton"></div>'.repeat(8)}</div>`;
     return;
   }
+  if (state.view === 'admin') {
+    if (!isAdmin()) { state.view = 'all'; return render(); }
+    box.innerHTML = adminHtml();
+    return;
+  }
   const list = visibleProjects();
   let html = '';
   if (state.error && !state.projects.length) {
@@ -486,6 +498,7 @@ async function openDetail(slug, refresh = false) {
         ${act.kind === 'download' ? `<button class="btn primary" data-open="${esc(asset.url)}">${state.platform === 'android' ? 'Installer sur Android' : 'Télécharger pour ' + esc(PLATFORM_NAMES[state.platform] || state.platform)}${asset.size ? ` · ${fmtSize(asset.size)}` : ''}</button>` : ''}
         ${p.website_url ? `<button class="btn ${['launch', 'install', 'download', 'busy'].includes(act.kind) ? '' : 'primary'}" data-open="${esc(p.website_url)}">Ouvrir ${p.type === 'site' ? 'le site' : "l'appli web"} ↗</button>` : ''}
         ${p.repo_url ? `<button class="btn ghost" data-open="${esc(p.repo_url)}">Code source ↗</button>` : ''}
+        ${isAdmin() ? `<button class="btn ghost" data-admin-panel="${esc(p.slug)}" title="Ouvrir ce projet dans le panel d'administration">🛠 Gérer</button>` : ''}
         ${inst ? `<button class="btn ghost danger" data-remove="${esc(p.slug)}">${inst.removable ? 'Désinstaller' : 'Retirer du launcher'}</button>` : ''}
       </div>
       <div class="prog wide ${state.progress[p.slug] ? '' : 'hidden'}" data-prog="${esc(p.slug)}"><span></span><div class="progress"><i></i></div></div>
@@ -611,6 +624,7 @@ function renderAccount() {
         <div><b>${esc(u.name)}</b><div class="muted">@${esc(u.username || '')}</div></div>
       </div>
       <div class="coins"><span>🪙</span><b>${u.coins}</b> pièces</div>
+      ${u.admin ? `<p><button class="btn" data-view="admin" data-close>🛠 Administration du launcher</button></p>` : ''}
       <p class="muted small">Les pièces se gagnent sur les sites NounoursCorp. Elles débloquent des versions réservées, définitivement pour ton compte.</p>
       <div class="row"><button class="btn" id="acctRefresh">Actualiser</button><button class="btn ghost danger" id="acctLogout">Se déconnecter</button></div>`
     : L ? `
@@ -653,7 +667,8 @@ async function pollLogin() {
       state.user = r.user; LS.set('nl.user', r.user);
       state.login = null;
       renderAccount(); renderAccountBtn();
-      toast(`Connecté : ${r.user.name}`);
+      toast(`Connecté : ${r.user.name}${r.user.admin ? ' (admin)' : ''}`);
+      if (r.user.admin) loadAdmin();
       clearCache(); await refreshCatalog({ silent: true });
       return;
     }
@@ -671,6 +686,7 @@ async function refreshUser() {
     else { state.user = u; LS.set('nl.user', u); }
   } catch { /* hors ligne : on garde le dernier état */ }
   renderAccountBtn();
+  if (isAdmin()) loadAdmin(); else render();
   if (!$('#account').classList.contains('hidden')) renderAccount();
 }
 
@@ -691,6 +707,55 @@ setInterval(() => {
     }, 2000);
   }
 }, 1000);
+
+// ---------- Administration (comptes admin NounoursAccount) ----------
+
+async function loadAdmin() {
+  if (!isAdmin()) return;
+  try { state.admin = { pending: (await adminCall('summary')).pending || [], loaded: true }; }
+  catch (e) { state.admin.loaded = true; if (e.status === 403) { state.user = { ...state.user, admin: false }; } }
+  renderNav();
+  if (state.view === 'admin') renderGrid();
+}
+
+function adminHtml() {
+  const A = state.admin;
+  const minLocal = (() => { const d = new Date(Date.now() + 5 * 60000); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); })();
+  const rows = A.pending.map(r => `
+      <div class="adm-row">
+        <div class="adm-name"><b>${esc(r.project)}</b> ${esc(r.name)}<small class="muted">détectée le ${esc(new Date(r.detected_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }))}</small></div>
+        <button class="btn sm primary" data-adm-pub="${r.id}">Publier maintenant</button>
+        <span class="adm-sched"><input type="datetime-local" min="${minLocal}" data-adm-date="${r.id}"><button class="btn sm" data-adm-sched="${r.id}">Programmer</button></span>
+        <button class="btn sm ghost" data-admin-panel="${esc(r.slug)}">Détails…</button>
+      </div>`).join('');
+  return `<div class="admin-view">
+    <div class="adm-actions">
+      <button class="btn primary" data-admin-panel="">🛠 Ouvrir le panel complet</button>
+      <button class="btn" data-admin-watch>🔎 Chercher les nouvelles versions</button>
+      <button class="btn ghost" data-admin-reload>⟳ Actualiser</button>
+    </div>
+    <p class="muted small">Le panel s'ouvre dans une fenêtre du launcher, déjà connecté avec ton compte : projets, versions, fichiers, verrous et surveillance.</p>
+    <h2 class="section">Versions en attente de sortie</h2>
+    ${!A.loaded ? '<div class="card skeleton" style="height:70px"></div>'
+      : rows || '<div class="empty small-empty"><div class="big">✅</div><p>Aucune version en attente. Les nouvelles versions détectées sur GitHub ou dans les dossiers du serveur apparaîtront ici (et par mail).</p></div>'}
+  </div>`;
+}
+
+async function openAdminPanel(slug = '') {
+  try {
+    const { url } = await adminCall('panel-link', { slug });
+    if (canInstall()) await invoke('open_admin_window', { url });
+    else openExternal(url);
+  } catch (e) { toast('Panel : ' + (e.message || e), 'err'); }
+}
+
+async function adminSchedule(id, when, local = '') {
+  try {
+    await adminCall('release/schedule', { id, when, local });
+    toast(when === 'now' ? 'Version publiée ✓' : 'Sortie programmée ✓');
+    await Promise.all([loadAdmin(), refreshCatalog({ silent: true })]);
+  } catch (e) { toast(e.message, 'err'); }
+}
 
 function showOverlay(sel) {
   const el = $(sel);
@@ -956,6 +1021,22 @@ document.addEventListener('click', async e => {
     return;
   }
   if (t.closest('#accountBtn')) { openAccount(); return; }
+  const ap = t.closest('[data-admin-panel]');
+  if (ap) { openAdminPanel(ap.dataset.adminPanel); return; }
+  const pub = t.closest('[data-adm-pub]');
+  if (pub) { if (confirm('Publier cette version maintenant ?')) adminSchedule(+pub.dataset.admPub, 'now'); return; }
+  const sch = t.closest('[data-adm-sched]');
+  if (sch) {
+    const v = $(`[data-adm-date="${sch.dataset.admSched}"]`)?.value;
+    if (!v) { toast('Choisis d\'abord la date et l\'heure de sortie', 'err'); return; }
+    adminSchedule(+sch.dataset.admSched, 'at', v); return;
+  }
+  if (t.closest('[data-admin-watch]')) {
+    try { const r = await adminCall('watch/run'); toast(r.new.length ? `${r.new.length} nouvelle(s) version(s) trouvée(s)` : 'Rien de nouveau'); await loadAdmin(); }
+    catch (err) { toast(err.message, 'err'); }
+    return;
+  }
+  if (t.closest('[data-admin-reload]')) { loadAdmin(); return; }
   if (t.id === 'loginStart') { startLogin(); return; }
   if (t.id === 'loginCancel') { clearTimeout(state.login?.timer); state.login = null; renderAccount(); return; }
   if (t.id === 'acctRefresh') { refreshUser().then(() => toast('Solde actualisé')); return; }
@@ -1069,7 +1150,9 @@ document.addEventListener('contextmenu', e => { if (!e.target.closest('input, te
 
 applyPrefs();
 renderAccountBtn();
-window.addEventListener('nl-auth-lost', () => { state.user = null; LS.del('nl.user'); renderAccountBtn(); });
+window.addEventListener('nl-auth-lost', () => { state.user = null; LS.del('nl.user'); renderAccountBtn(); render(); });
+// Retour du réseau : on actualise tout de suite
+window.addEventListener('online', () => { refreshCatalog({ silent: true }); refreshStatus(); });
 
 (async () => {
   try { await initNative(); } catch (e) { console.warn(e); }
@@ -1077,7 +1160,7 @@ window.addEventListener('nl-auth-lost', () => { state.user = null; LS.del('nl.us
   await refreshCatalog();
   refreshStatus();
   refreshUser();
-  setInterval(refreshUser, 10 * 60 * 1000);
+  setInterval(refreshUser, 10 * 60 * 1000); // solde de pièces + versions en attente (admin)
   setInterval(async () => { await refreshCatalog({ silent: true }); if (state.autoApps) updateAll({ auto: true }); }, 5 * 60 * 1000);
   setInterval(refreshStatus, 60 * 1000);
   setTimeout(() => checkUpdate(false, { startup: true }), 1500);
