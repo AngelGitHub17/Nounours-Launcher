@@ -153,6 +153,48 @@ function nl_redirect(string $url): never
     exit;
 }
 
+// ---------- Notes de version depuis le CHANGELOG du dépôt ----------
+
+/** Contenu du journal des versions du dépôt (CHANGELOG.md…), ou null s'il n'existe pas */
+function nl_gh_changelog(string $repo): ?string
+{
+    foreach (['CHANGELOG.md', 'CHANGELOG', 'docs/CHANGELOG.md', 'HISTORY.md'] as $path) {
+        $ch = curl_init(rtrim((string)(nl_config()['github_api'] ?? 'https://api.github.com'), '/') . '/repos/' . $repo . '/contents/' . $path);
+        $h = ['Accept: application/vnd.github.raw+json', 'X-GitHub-Api-Version: 2022-11-28', 'User-Agent: NounoursLauncher-Catalogue'];
+        if (nl_gh_token() !== '') { $h[] = 'Authorization: Bearer ' . nl_gh_token(); }
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_CONNECTTIMEOUT => 5, CURLOPT_TIMEOUT => 15, CURLOPT_HTTPHEADER => $h]);
+        $body = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+        if ($code === 200 && is_string($body) && $body !== '') { return $body; }
+    }
+    return null;
+}
+
+/**
+ * Section d'une version dans un journal Markdown. Titres reconnus :
+ *   ## 0.20.0 — 11 novembre 2026   ## [0.20.0] - 2026-11-11   ## v0.20.0   ### 0.20.0
+ * La section s'arrête au titre suivant de même niveau (ou plus haut).
+ */
+function nl_changelog_section(string $text, string $version): ?string
+{
+    $version = nl_norm_version($version);
+    $lines = preg_split('/\R/', $text);
+    $out = null; $level = 0;
+    foreach ($lines as $line) {
+        if (preg_match('/^(#{1,4})\s*\[?v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\]?/', $line, $m)) {
+            if ($out !== null && strlen($m[1]) <= $level) { break; }
+            if ($out === null && $m[2] === $version) { $out = []; $level = strlen($m[1]); continue; }
+        } elseif ($out !== null && preg_match('/^(#{1,4})\s/', $line, $m) && strlen($m[1]) <= $level) {
+            break;
+        }
+        if ($out !== null) { $out[] = $line; }
+    }
+    if ($out === null) { return null; }
+    $notes = trim(implode("\n", $out));
+    return $notes !== '' ? mb_substr($notes, 0, 50000) : null;
+}
+
 // ---------- Import des releases d'un dépôt (panel) ----------
 
 /** Plateforme et type d'un fichier d'après son nom ; null = pas un installeur (ignoré) */
@@ -198,7 +240,8 @@ function nl_gh_import(int $projectId, int $limit = 15): array
     if ($code === 401) { nl_fail('Jeton GitHub refusé (expiré ?) : remplace github_token dans config.php', 502); }
     if ($code !== 200 || !is_array($releases)) { nl_fail("GitHub a répondu HTTP $code", 502); }
 
-    $report = ['repo' => $repo, 'releases' => 0, 'assets' => 0, 'skipped' => []];
+    $changelog = nl_gh_changelog($repo);
+    $report = ['repo' => $repo, 'releases' => 0, 'assets' => 0, 'notes_changelog' => 0, 'changelog' => $changelog !== null, 'skipped' => []];
     foreach ($releases as $r) {
         if (!empty($r['draft'])) { continue; }
         $version = nl_norm_version((string)($r['tag_name'] ?? ''));
@@ -230,6 +273,12 @@ function nl_gh_import(int $projectId, int $limit = 15): array
                    'd' => gmdate('Y-m-d H:i:s', strtotime((string)($r['published_at'] ?? 'now')) ?: time()),
                ]);
             $rid = (int)$db->lastInsertId();
+            // Notes : la section du CHANGELOG du dépôt (plus complète) remplace le texte de la release GitHub
+            $section = $changelog !== null ? nl_changelog_section($changelog, $version) : null;
+            if ($section !== null) {
+                $db->prepare('UPDATE nl_releases SET notes = ? WHERE id = ?')->execute([$section, $rid]);
+                $report['notes_changelog']++;
+            }
             foreach ($assets as $a) {
                 // Les réglages déjà saisis à la main (arguments, chemin à lancer) ne sont pas écrasés
                 $db->prepare('INSERT INTO nl_assets (release_id, platform, kind, url, size, sha256)

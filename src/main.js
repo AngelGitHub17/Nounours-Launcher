@@ -471,12 +471,21 @@ async function openDetail(slug, refresh = false) {
   try {
     const full = await loadProject(p.slug, state.platform, state.channel);
     const rels = (full.releases || []).filter(r => r.notes || r.assets.length);
+    const inst = state.installed[p.slug];
+    const relHtml = r => `
+        <article class="rel ${inst && r.version === inst.version ? 'current' : ''}">
+          <div class="rel-h">
+            <b>v${esc(r.version)}</b>
+            ${r.channel === 'beta' ? '<span class="chip">bêta</span>' : ''}
+            ${inst && r.version === inst.version ? '<span class="chip mine">installée</span>' : ''}
+            <span class="muted">${new Date(r.pub_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+          </div>
+          ${r.notes ? `<div class="md notes">${md(r.notes)}</div>` : '<p class="muted small">Pas de notes pour cette version.</p>'}
+        </article>`;
     if (rels.length && $('#releases')) {
-      $('#releases').innerHTML = `<h3 class="section">Nouveautés</h3>` + rels.slice(0, 8).map(r => `
-        <div class="rel">
-          <div class="rel-h"><b>v${esc(r.version)}</b>${r.channel === 'beta' ? '<span class="chip">bêta</span>' : ''}<span class="muted">${new Date(r.pub_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
-          ${r.notes ? `<div class="md">${md(r.notes)}</div>` : ''}
-        </div>`).join('');
+      const first = rels.slice(0, 3), more = rels.slice(3, 20);
+      $('#releases').innerHTML = `<h3 class="section">Nouveautés</h3>` + first.map(relHtml).join('')
+        + (more.length ? `<details class="more-rels"><summary>Voir les ${more.length} versions précédentes</summary>${more.map(relHtml).join('')}</details>` : '');
     }
   } catch { /* hors ligne : pas d'historique */ }
 }

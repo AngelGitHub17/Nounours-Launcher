@@ -65,6 +65,8 @@ Le launcher peut distribuer les installeurs d'un dépôt **privé** sans donner 
 2. Colle-le dans `launcher/config.php`, à la ligne `'github_token' => '…'`. Il reste sur le serveur et n'est jamais envoyé aux utilisateurs.
 3. Dans le panel, renseigne le **Dépôt GitHub des versions** du projet (par exemple `AngelGitHub17/MonAppli`), puis clique sur **Importer les versions depuis GitHub**.
 
+**Notes de version** : si le dépôt contient un `CHANGELOG.md` (titres `## 1.2.0 — date`, `## [1.2.0]` ou `## v1.2.0`), l'import y prend la section de chaque version, en général bien plus détaillée que le texte de la release GitHub. Pour mettre à jour les notes, il suffit de relancer l'import.
+
 L'import ne reprend que les installeurs (`.exe`, `.msi`, `.zip`, `.dmg`, `.pkg`, `.AppImage`, `.deb`, `.rpm`, `.apk`, `.jar`). Il ignore le code source, les signatures et les autres fichiers. Les empreintes SHA-256 fournies par GitHub sont reprises automatiquement.
 
 Pour un dépôt privé :

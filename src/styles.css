@@ -225,9 +225,26 @@ h1 { margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -.01em; }
 .md ul, .md ol { padding-left: 20px; margin: 6px 0; }
 .md code { background: var(--glass2); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
 .md a { color: var(--accent2); }
-.rel { padding: 12px 0; border-top: 1px solid var(--line); }
-.rel-h { display: flex; align-items: center; gap: 8px; }
+.rel { padding: 14px 16px; margin: 10px 0; border-radius: 14px; background: var(--glass); border: 1px solid var(--line); }
+.rel.current { border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+.rel-h { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.rel-h b { font-size: 15px; }
 .rel-h .muted { margin-left: auto; font-size: 12px; }
+.chip.mine { border-color: color-mix(in srgb, var(--ok) 60%, transparent); color: var(--ok); }
+.md.notes { font-size: 13.5px; line-height: 1.55; }
+.md.notes > ul { margin: 0; padding-left: 18px; }
+.md ul ul, .md ol ul { margin: 4px 0 6px; padding-left: 18px; }
+.md li { margin: 3px 0; }
+.md li::marker { color: var(--accent); }
+.md ul ul li::marker { color: var(--muted); }
+.md h3, .md h4, .md h5 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 12px 0 4px; }
+.md a { color: var(--accent2); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent2) 40%, transparent); cursor: pointer; }
+.md a:hover { border-bottom-color: var(--accent2); }
+.more-rels { margin-top: 6px; }
+.more-rels > summary { cursor: pointer; color: var(--accent2); padding: 8px 0; font-weight: 600; list-style: none; }
+.more-rels > summary::before { content: '▸ '; }
+.more-rels[open] > summary::before { content: '▾ '; }
+.small { font-size: 12.5px; }
 
 /* Réglages */
 .field { margin-bottom: 22px; }

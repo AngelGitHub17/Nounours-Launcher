@@ -216,7 +216,7 @@ pre{padding:10px;white-space:pre-wrap;user-select:all}
     <section id="relSection" class="hidden">
       <h3>Versions</h3>
       <div class="ghbar">
-        <button type="button" class="btn sm" id="ghImport">⬇ Importer les versions depuis GitHub</button>
+        <button type="button" class="btn sm" id="ghImport">⬇ Importer / actualiser depuis GitHub</button>
         <span class="muted" id="ghState" style="font-size:12.5px"></span>
       </div>
       <div id="releases"></div>
@@ -418,10 +418,12 @@ $('#ghImport').onclick = async () => {
   const b = $('#ghImport'); b.disabled = true; b.textContent = 'Import en cours…';
   try {
     const r = await api('admin/github/import', { project_id: current.id });
-    toast(`${r.releases} version(s), ${r.assets} installeur(s) importés depuis ${r.repo}` + (r.skipped.length ? ` · ignorés : ${r.skipped.join(', ')}` : ''));
+    toast(`${r.releases} version(s), ${r.assets} installeur(s) importés depuis ${r.repo}`
+      + (r.changelog ? ` · notes reprises du CHANGELOG pour ${r.notes_changelog} version(s)` : ' · pas de CHANGELOG.md : notes des releases GitHub')
+      + (r.skipped.length ? ` · ignorés : ${r.skipped.join(', ')}` : ''));
     await load();
   } catch (e) { toast(e.message, true); }
-  finally { b.disabled = false; b.textContent = '⬇ Importer les versions depuis GitHub'; }
+  finally { b.disabled = false; b.textContent = '⬇ Importer / actualiser depuis GitHub'; }
 };
 
 // Upload d'images

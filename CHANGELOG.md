@@ -2,6 +2,13 @@
 
 Pour publier une version : `npm run version:set X.Y.Z`, ajoute une section `## X.Y.Z` en haut de cette liste, puis commit et push sur `main`.
 
+## 0.2.1
+
+- Notes de version bien plus lisibles : listes imbriquées, liens cliquables, une carte par version, la version installée signalée
+- Seules les 3 dernières versions sont dépliées ; « Voir les versions précédentes » pour le reste
+- Les notes des applis viennent maintenant du CHANGELOG de leur dépôt GitHub (même privé)
+- Mac : les installeurs .pkg sont proposés avant les archives .zip
+
 ## 0.2.0
 
 - La molette fonctionne partout : seule la liste des projets défile, la barre latérale reste en place
