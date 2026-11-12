@@ -1,8 +1,13 @@
 # Construit NounoursLauncher pour Windows, macOS (Apple Silicon + Intel) et Linux,
 # publie la release GitHub puis l'inscrit dans le catalogue (mise à jour auto).
 #
-# Déclenchement : pousser un tag  →  git tag -a v0.2.0 -m "- Nouveauté 1" && git push --tags
-# (le message du tag devient les notes de version ; un tag v0.3.0-beta.1 part dans le canal bêta)
+# Déclenchement (au choix) :
+#  1. Changer la version (npm run version:set 0.2.0), écrire ses notes dans CHANGELOG.md
+#     sous un titre « ## 0.2.0 », puis pousser sur main. Si le tag v0.2.0 n'existe pas encore,
+#     la version est construite et publiée (le tag est créé automatiquement).
+#  2. Pousser un tag : git tag -a v0.2.0 -m "- Nouveauté" && git push --tags
+#     (le message du tag sert alors de notes de version)
+# Une version comme 0.3.0-beta.1 part dans le canal bêta.
 #
 # Secrets du dépôt : TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD (obligatoires)
 #                     NL_CI_TOKEN (pour inscrire la version dans le catalogue)
@@ -13,12 +18,48 @@ name: Release NounoursLauncher
 on:
   push:
     tags: ['v*']
+    branches: [main]
+    paths: ['src-tauri/tauri.conf.json', 'CHANGELOG.md']
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      go: ${{ steps.v.outputs.go }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version à publier
+        id: v
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(jq -r .version src-tauri/tauri.conf.json)"
+          fi
+          go=true
+          if [ "$GITHUB_REF_TYPE" != "tag" ] && git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "La version $tag est déjà publiée : rien à faire."
+            go=false
+          fi
+          case "$tag" in *-*) pre=true ;; *) pre=false ;; esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+          echo "Version : $tag (publier : $go, bêta : $pre)"
+
   build:
+    needs: prepare
+    if: needs.prepare.outputs.go == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -72,28 +113,41 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'NounoursLauncher ${{ github.ref_name }}'
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseName: 'NounoursLauncher ${{ needs.prepare.outputs.tag }}'
           releaseBody: 'Publication en cours…'
           releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
           args: ${{ matrix.args }}
 
   publish:
-    needs: build
+    needs: [prepare, build]
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Notes de version (message du tag)
+      - name: Notes de version (message du tag, sinon CHANGELOG.md)
         id: notes
         run: |
           git fetch --tags --force
+          notes=""
+          if [ "$(git cat-file -t "$TAG" 2>/dev/null)" = "tag" ]; then
+            notes=$(git tag -l --format='%(contents)' "$TAG" | sed '/^-----BEGIN PGP/,$d')
+          fi
+          if [ -z "$(echo "$notes" | tr -d '[:space:]')" ] && [ -f CHANGELOG.md ]; then
+            # Section « ## 0.2.0 » (ou « ## v0.2.0 ») jusqu'au titre ## suivant
+            v="${TAG#v}"
+            notes=$(awk -v v="$v" '
+              /^## / { if (inside) exit; t=$2; sub(/^v/, "", t); if (t == v) { inside=1; next } }
+              inside { print }' CHANGELOG.md)
+          fi
           {
             echo 'text<<__FIN__'
-            git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" | sed '/^-----BEGIN PGP/,$d'
+            echo "$notes"
             echo '__FIN__'
           } >> "$GITHUB_OUTPUT"
 
@@ -118,12 +172,11 @@ jobs:
             echo
             echo "_Les fichiers \`.sig\`, \`.app.tar.gz\` et \`latest.json\` servent à la mise à jour automatique : inutile de les télécharger._"
           } > notes.md
-          gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft=false --latest=${{ !contains(github.ref_name, '-') }} --notes-file notes.md
+          gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false --latest=${{ needs.prepare.outputs.prerelease != 'true' }} --notes-file notes.md
 
       - name: Inscrire dans le catalogue NounoursLauncher
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
           NOTES: ${{ steps.notes.outputs.text }}
           NL_API_URL: ${{ vars.NL_API_URL || 'https://nounourscorp.fr/launcher/api.php' }}
           NL_CI_TOKEN: ${{ secrets.NL_CI_TOKEN }}

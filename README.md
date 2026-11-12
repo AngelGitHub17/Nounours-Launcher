@@ -94,18 +94,23 @@ Le launcher refuse d'installer une mise à jour qui n'est pas signée avec la cl
 
 ```
 npm run version:set 0.2.0
+```
+
+1. Ajoute une section `## 0.2.0` en haut de `CHANGELOG.md`, avec la liste de ce qui change.
+2. Puis :
+
+```
 git commit -am "v0.2.0"
-git tag -a v0.2.0 -m "- Nouveauté 1
-- Correction 2"
-git push && git push --tags
+git push
 ```
 
 Ensuite, GitHub fait tout le reste :
-1. il construit Windows, macOS (Apple Silicon et Intel) et Linux ;
-2. il publie la release, avec le message du tag comme notes de version ;
-3. il l'inscrit dans le catalogue.
+1. il crée le tag `v0.2.0` ;
+2. il construit Windows, macOS (Apple Silicon et Intel) et Linux ;
+3. il publie la release, avec les notes de `CHANGELOG.md` ;
+4. il l'inscrit dans le catalogue.
 
-Les launchers installés proposent la mise à jour dans les 6 heures (ou dès le prochain démarrage). Un tag comme `v0.3.0-beta.1` part dans le canal bêta.
+Les launchers installés proposent la mise à jour dans les 6 heures. Une version comme `0.3.0-beta.1` part dans le canal bêta. Pousser directement un tag `vX.Y.Z` marche aussi.
 
 ## Compiler à la main
 
